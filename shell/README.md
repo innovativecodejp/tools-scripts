@@ -9,6 +9,58 @@ macOS / Linux 向けの Bash / Zsh 自動化ツールです。
 
 > Windows 上で使用する場合は WSL2（Windows Subsystem for Linux）を推奨します。
 
+## WSL2 セットアップ（Windows ユーザー向け）
+
+### インストール
+
+```powershell
+# PowerShell（管理者）で実行
+wsl --install
+
+# 特定のディストリビューションを指定する場合
+wsl --install -d Ubuntu-24.04
+```
+
+インストール後、PC を再起動してください。
+
+### 利用可能なディストリビューションの確認
+
+```powershell
+wsl --list --online   # インストール可能な一覧
+wsl --list --verbose  # インストール済みの一覧
+```
+
+### WSL2 からスクリプトを実行する
+
+```bash
+# Windows のドライブは /mnt/ 以下にマウントされています
+cd /mnt/d/dev/tools-scripts/shell
+
+# 実行権限を付与して実行
+chmod +x script_name.sh
+./script_name.sh
+```
+
+### Windows ↔ WSL2 のパス変換
+
+| Windows パス | WSL2 パス |
+|---|---|
+| `C:\Users\username` | `/mnt/c/Users/username` |
+| `D:\dev\tools-scripts` | `/mnt/d/dev/tools-scripts` |
+
+### 注意事項
+
+- Windows ファイルシステム（`/mnt/c/` など）上のスクリプトは実行権限が付与できない場合があります。その際はスクリプトを WSL2 のホームディレクトリ（`~/`）にコピーして実行してください。
+- 改行コードが `CRLF` のスクリプトはエラーになることがあります。`dos2unix` コマンドで変換してください。
+
+```bash
+# dos2unix のインストール
+sudo apt install dos2unix
+
+# 改行コードを LF に変換
+dos2unix script_name.sh
+```
+
 ## ツール一覧
 
 > 現在準備中です。ツールが追加され次第、以下の表に記載します。
