@@ -6,6 +6,8 @@
     Node.js（marked / puppeteer / mermaid.js / highlight.js）を使用して
     Markdownを日本語対応・シンタックスハイライト付きPDFに変換します。
     初回実行時にnpmパッケージをインストールします（確認あり / Chromium 約170MB含む）。
+    -AiMermaid を指定すると、```ai-mermaid ブロックを Claude API で Mermaid 構文に変換します。
+    事前に .\Set-AiConfig.ps1 で APIキーとモデルを設定してください。
 
 .PARAMETER Pattern
     変換対象のワイルドカードパターン (例: "*.md", "docs\*.md")
@@ -20,7 +22,7 @@
     出力ディレクトリ（省略時は各入力ファイルと同じディレクトリ）
 
 .PARAMETER Force
-    既存のPDFファイルを上書きする
+    既存のPDFファイルを上書きする。AiMermaid使用時のコスト警告もスキップする
 
 .PARAMETER FontSize
     本文フォントサイズ（pt）デフォルト: 12
@@ -34,11 +36,22 @@
 .PARAMETER HeadingFontSize
     H1のフォントサイズ（em単位）デフォルト: 2.0（H2は1.5em、H3は1.2em）
 
+.PARAMETER AiMermaid
+    ```ai-mermaid ブロックを Claude API で Mermaid 構文に自動変換する
+
+.PARAMETER AiStrict
+    AiMermaid 使用時、1ブロックでも生成失敗したらファイル全体をスキップする
+
+.PARAMETER AiDebug
+    AiMermaid 使用時、AI置換済みの中間Markdownを *.md.ai.md として保存する（学習・確認用）
+
 .EXAMPLE
     .\MdToPdf.ps1 -Pattern "*.md"
     .\MdToPdf.ps1 -Pattern "docs\*.md" -Recurse -OutputDir ".\pdf" -Force
     .\MdToPdf.ps1 -FileList "files.txt" -FontSize 11 -Margin "15mm"
     .\MdToPdf.ps1 -Pattern "*.md" -FontFamily "Yu Gothic, sans-serif" -HeadingFontSize 1.8
+    .\MdToPdf.ps1 -Pattern "*.md" -AiMermaid
+    .\MdToPdf.ps1 -Pattern "docs\*.md" -Recurse -AiMermaid -AiStrict -AiDebug -OutputDir ".\pdf" -Force
 #>
 
 [CmdletBinding(DefaultParameterSetName = 'Pattern')]
@@ -58,7 +71,10 @@ param(
     [int]$FontSize = 12,
     [string]$Margin = '20mm',
     [string]$FontFamily = 'Meiryo UI, Yu Gothic UI, Segoe UI, sans-serif',
-    [double]$HeadingFontSize = 2.0
+    [double]$HeadingFontSize = 2.0,
+    [switch]$AiMermaid,
+    [switch]$AiStrict,
+    [switch]$AiDebug
 )
 
 Set-StrictMode -Version Latest
@@ -70,6 +86,189 @@ function Write-Ok   { param([string]$Msg) Write-Host "[v] $Msg" -ForegroundColor
 function Write-Skip { param([string]$Msg) Write-Host "[~] $Msg" -ForegroundColor Yellow }
 function Write-Fail { param([string]$Msg) Write-Host "[x] $Msg" -ForegroundColor Red }
 function Write-Info { param([string]$Msg) Write-Host "    $Msg" -ForegroundColor Gray }
+
+# ─── AI Mermaid 処理 ──────────────────────────────────────────────────────────
+function Invoke-AiMermaid {
+    param(
+        [string]$MarkdownContent,
+        [string]$FilePath,
+        [string]$ApiKey,
+        [string]$Model,
+        [bool]$Strict,
+        [bool]$Debug,
+        [ref]$TotalInputTokens,
+        [ref]$TotalOutputTokens
+    )
+
+    $fileName = Split-Path $FilePath -Leaf
+
+    # ai-mermaid ブロックを抽出（種別付き: ```ai-mermaid:type または ```ai-mermaid）
+    $blockPattern = '(?s)```ai-mermaid(?::([a-zA-Z]+))?\r?\n(.*?)```'
+    $matches = [regex]::Matches($MarkdownContent, $blockPattern)
+
+    if ($matches.Count -eq 0) { return $MarkdownContent }
+
+    Write-Host "[AI]  $fileName`: $($matches.Count)ブロックを生成中..." -ForegroundColor Magenta
+
+    # ブロックをリスト化
+    $blocks = @()
+    for ($i = 0; $i -lt $matches.Count; $i++) {
+        $blocks += [PSCustomObject]@{
+            Id       = "BLOCK_$($i + 1)"
+            Type     = $matches[$i].Groups[1].Value  # 空文字 = AI判断
+            Text     = $matches[$i].Groups[2].Value.Trim()
+            Original = $matches[$i].Value
+            Line     = ($MarkdownContent.Substring(0, $matches[$i].Index) -split "`n").Count
+        }
+    }
+
+    # プロンプト構築
+    $blocksJson = $blocks | ForEach-Object {
+        $typeHint = if ($_.Type) { " 種別ヒント: $($_.Type)" } else { '' }
+        "{ `"id`": `"$($_.Id)`",$typeHint `"text`": $(($_.Text | ConvertTo-Json)) }"
+    }
+    $blocksArray = "[$($blocksJson -join ', ')]"
+
+    $systemPrompt = @'
+あなたはMermaid記法の専門家です。
+ユーザーが渡す各ブロックのテキストをMermaid構文に変換してください。
+
+ルール:
+- 種別ヒントがある場合はその種別を使用する。ない場合はテキストから最適な種別を判断する
+- 生成した構文が正しいMermaid構文であることを必ず自己確認してから返す
+- コードブロック記号（```）は含めない。Mermaid構文のみを返す
+- 結果は必ず以下のJSON配列形式で返す（他のテキストは一切含めない）:
+[{"id":"BLOCK_1","status":"ok","mermaid":"..."},{"id":"BLOCK_2","status":"error","error":"理由"}]
+'@
+
+    $userPrompt = "以下のブロックをMermaid構文に変換してください:`n$blocksArray"
+
+    $body = [ordered]@{
+        model      = $Model
+        max_tokens = 2048
+        system     = @(
+            @{
+                type = 'text'
+                text = $systemPrompt
+                cache_control = @{ type = 'ephemeral' }
+            }
+        )
+        messages   = @(@{ role = 'user'; content = $userPrompt })
+    } | ConvertTo-Json -Depth 6
+
+    # API呼び出し
+    try {
+        $response = Invoke-RestMethod `
+            -Uri     'https://api.anthropic.com/v1/messages' `
+            -Method  Post `
+            -Headers @{
+                'x-api-key'                  = $ApiKey
+                'anthropic-version'          = '2023-06-01'
+                'anthropic-beta'             = 'prompt-caching-2024-07-31'
+                'content-type'              = 'application/json'
+            } `
+            -Body $body
+    } catch {
+        Write-Host "[AI~] $fileName`: API呼び出し失敗: $($_.Exception.Message)" -ForegroundColor Yellow
+        if ($Strict) { return $null }
+        return $MarkdownContent
+    }
+
+    # トークン集計
+    $inputTokens  = $response.usage.input_tokens
+    $outputTokens = $response.usage.output_tokens
+    $TotalInputTokens.Value  += $inputTokens
+    $TotalOutputTokens.Value += $outputTokens
+
+    # レスポンス解析
+    $rawText = $response.content[0].text.Trim()
+    try {
+        $results = $rawText | ConvertFrom-Json
+    } catch {
+        Write-Host "[AI~] $fileName`: レスポンス解析失敗" -ForegroundColor Yellow
+        if ($Strict) { return $null }
+        return $MarkdownContent
+    }
+
+    # mermaid.parse() 検証用 Node.js スクリプト（installDir のmermaidを使用）
+    $installDir = Join-Path $env:LOCALAPPDATA 'md-to-pdf-ps'
+    $validateScript = @'
+const fs = require('fs');
+const input = JSON.parse(fs.readFileSync(process.argv[2], 'utf-8'));
+async function validate() {
+  const results = [];
+  for (const item of input) {
+    if (item.status !== 'ok') { results.push({ id: item.id, valid: false, error: item.error || 'AI生成失敗' }); continue; }
+    try {
+      // mermaid@10はESMのためdynamic importを使用
+      const { default: mermaid } = await import('./node_modules/mermaid/dist/mermaid.esm.min.mjs').catch(() => ({ default: null }));
+      if (mermaid && typeof mermaid.parse === 'function') {
+        await mermaid.parse(item.mermaid);
+      }
+      results.push({ id: item.id, valid: true });
+    } catch(e) {
+      results.push({ id: item.id, valid: false, error: e.message || String(e) });
+    }
+  }
+  process.stdout.write(JSON.stringify(results) + '\n');
+}
+validate().catch(e => { process.stderr.write(e.stack); process.exit(1); });
+'@
+    $validateScriptPath = Join-Path $env:TEMP "ai-validate-$(Get-Random).mjs"
+    $validateInputPath  = Join-Path $env:TEMP "ai-validate-input-$(Get-Random).json"
+    $results | ConvertTo-Json -Depth 3 | Set-Content $validateInputPath -Encoding UTF8
+    Set-Content $validateScriptPath -Value $validateScript -Encoding UTF8
+
+    try {
+        $validateOutput = & node $validateScriptPath $validateInputPath 2>$null
+        $validations = $validateOutput | ConvertFrom-Json
+    } catch {
+        $validations = $null
+    } finally {
+        Remove-Item $validateScriptPath, $validateInputPath -ErrorAction SilentlyContinue
+    }
+
+    # ブロックごとに置換
+    $output        = $MarkdownContent
+    $hasError      = $false
+
+    foreach ($block in $blocks) {
+        $aiResult   = $results   | Where-Object { $_.id -eq $block.Id } | Select-Object -First 1
+        $validation = if ($validations) { $validations | Where-Object { $_.id -eq $block.Id } | Select-Object -First 1 } else { $null }
+
+        $succeeded = $aiResult -and $aiResult.status -eq 'ok' -and
+                     (-not $validation -or $validation.valid)
+
+        if ($succeeded) {
+            $replacement = "``````mermaid`n$($aiResult.mermaid.Trim())`n``````"
+            $output = $output.Replace($block.Original, $replacement)
+        } else {
+            $errMsg = if ($validation -and -not $validation.valid) { $validation.error } `
+                      elseif ($aiResult -and $aiResult.error)      { $aiResult.error } `
+                      else                                          { '不明なエラー' }
+            Write-Host "[AI~] $fileName`: $($block.Id)（$($block.Line)行目付近）構文エラー: $errMsg" -ForegroundColor Yellow
+            $hasError = $true
+
+            if (-not $Strict) {
+                $fallback = "> ⚠️ AI Mermaid生成失敗 ($($block.Id)): $($block.Text)"
+                $output = $output.Replace($block.Original, $fallback)
+            }
+        }
+    }
+
+    if ($Strict -and $hasError) { return $null }
+
+    Write-Host "[AI✓] $fileName`: $($matches.Count)ブロック生成完了 (入力 $inputTokens / 出力 $outputTokens tokens)" -ForegroundColor Magenta
+
+    # -AiDebug: 中間ファイル保存
+    if ($Debug) {
+        $debugPath = $FilePath + '.ai.md'
+        Set-Content -Path $debugPath -Value $output -Encoding UTF8
+        Write-Host "    → $debugPath に保存しました" -ForegroundColor Gray
+    }
+
+    return $output
+}
 
 # ─── Node.js チェック ─────────────────────────────────────────────────────────
 try {
@@ -108,6 +307,79 @@ if ($mdFiles.Count -eq 0) {
 if ($OutputDir) {
     $OutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDir)
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+}
+
+# ─── AiMermaid 前処理 ────────────────────────────────────────────────────────
+$aiTotalInput  = 0
+$aiTotalOutput = 0
+$aiSkippedFiles = [System.Collections.ArrayList]@()
+
+if ($AiMermaid) {
+    # APIキー確認
+    $aiApiKey = $env:ANTHROPIC_API_KEY
+    if (-not $aiApiKey) {
+        Write-Fail 'ANTHROPIC_API_KEY が設定されていません。先に .\Set-AiConfig.ps1 を実行してください。'
+        exit 1
+    }
+    $aiModel = $env:ANTHROPIC_MODEL
+    if (-not $aiModel) { $aiModel = 'claude-sonnet-4-6' }
+
+    # ブロック数カウント（コスト警告用）
+    $totalBlocks = 0
+    foreach ($file in $mdFiles) {
+        $content = Get-Content $file.FullName -Raw -Encoding UTF8
+        $totalBlocks += ([regex]::Matches($content, '```ai-mermaid')).Count
+    }
+
+    if ($totalBlocks -gt 0) {
+        Write-Host "[AI]  ai-mermaidブロック合計: $totalBlocks 件" -ForegroundColor Magenta
+
+        if ($totalBlocks -ge 30 -and -not $Force) {
+            Write-Host "    APIコストが想定より大きくなる可能性があります。続行しますか？ [y/N]" -ForegroundColor Yellow
+            $answer = Read-Host ''
+            if ($answer -notmatch '^[yY]') {
+                Write-Info 'キャンセルしました。'
+                exit 0
+            }
+        }
+
+        # ファイルごとにAI処理
+        [System.Collections.ArrayList]$processedFiles = @()
+        foreach ($file in $mdFiles) {
+            $content = Get-Content $file.FullName -Raw -Encoding UTF8
+            $blockCount = ([regex]::Matches($content, '```ai-mermaid')).Count
+
+            if ($blockCount -eq 0) {
+                $null = $processedFiles.Add([PSCustomObject]@{ File = $file; Content = $content })
+                continue
+            }
+
+            $processed = Invoke-AiMermaid `
+                -MarkdownContent $content `
+                -FilePath        $file.FullName `
+                -ApiKey          $aiApiKey `
+                -Model           $aiModel `
+                -Strict          $AiStrict.IsPresent `
+                -Debug           $AiDebug.IsPresent `
+                -TotalInputTokens  ([ref]$aiTotalInput) `
+                -TotalOutputTokens ([ref]$aiTotalOutput)
+
+            if ($null -eq $processed) {
+                # -AiStrict でスキップ
+                Write-Fail "$($file.Name): -AiStrict のためスキップ"
+                $null = $aiSkippedFiles.Add($file)
+            } else {
+                $null = $processedFiles.Add([PSCustomObject]@{ File = $file; Content = $processed })
+            }
+        }
+
+        # スキップされたファイルを除外
+        $mdFiles = $processedFiles | ForEach-Object { $_.File }
+        $script:aiProcessedContents = @{}
+        foreach ($p in $processedFiles) {
+            $script:aiProcessedContents[$p.File.FullName] = $p.Content
+        }
+    }
 }
 
 # ─── ファイルペア構築（上書き確認）──────────────────────────────────────────
@@ -292,7 +564,9 @@ async function main() {
       const { input, output } = fileInfo;
       const page = await browser.newPage();
       try {
-        const markdown = fs.readFileSync(input, 'utf-8');
+        const markdown = fileInfo.content !== undefined
+          ? fileInfo.content
+          : fs.readFileSync(input, 'utf-8');
         const html     = buildHtml(markdown, input, style, hljsCss);
 
         await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -359,8 +633,17 @@ $nodeScriptPath = Join-Path $installDir 'convert.js'
 Set-Content -Path $nodeScriptPath -Value $nodeScript -Encoding UTF8
 
 # ─── 設定 JSON 作成 ──────────────────────────────────────────────────────────
+$filePairsWithContent = $filePairs | ForEach-Object {
+    $pair = [PSCustomObject]$_
+    if ($AiMermaid -and $script:aiProcessedContents -and $script:aiProcessedContents.ContainsKey($pair.input)) {
+        $pair | Add-Member -NotePropertyName 'content' -NotePropertyValue $script:aiProcessedContents[$pair.input] -PassThru
+    } else {
+        $pair
+    }
+}
+
 $configObj = [PSCustomObject]@{
-    files = [object[]]($filePairs | ForEach-Object { [PSCustomObject]$_ })
+    files = [object[]]$filePairsWithContent
     style = [PSCustomObject]@{
         fontSize        = $FontSize
         margin          = $Margin
@@ -428,5 +711,10 @@ Write-Host ''
 Write-Host '----------------------------------------' -ForegroundColor DarkGray
 Write-Host "  成功:     $success 件" -ForegroundColor Green
 if ($failed  -gt 0) { Write-Host "  失敗:     $failed 件"  -ForegroundColor Red }
-if ($skipped -gt 0) { Write-Host "  スキップ: $skipped 件" -ForegroundColor Yellow }
+$totalSkipped = $skipped + $aiSkippedFiles.Count
+if ($totalSkipped -gt 0) { Write-Host "  スキップ: $totalSkipped 件" -ForegroundColor Yellow }
+if ($AiMermaid -and ($aiTotalInput + $aiTotalOutput) -gt 0) {
+    $aiTotal = $aiTotalInput + $aiTotalOutput
+    Write-Host "  AI使用:   入力 $aiTotalInput / 出力 $aiTotalOutput tokens (合計 $aiTotal tokens)" -ForegroundColor Magenta
+}
 Write-Host '----------------------------------------' -ForegroundColor DarkGray
