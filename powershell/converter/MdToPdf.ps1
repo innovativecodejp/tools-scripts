@@ -110,7 +110,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Pattern') {
              Where-Object { $_.Extension -ieq '.md' }
     foreach ($f in $found) { $null = $mdFiles.Add($f) }
 } else {
-    $lines = Get-Content $FileList | Where-Object { $_.Trim() -ne '' }
+    $lines = Get-Content $FileList -Encoding UTF8 | Where-Object { $_.Trim() -ne '' }
     foreach ($line in $lines) {
         $item = Get-Item $line.Trim() -ErrorAction SilentlyContinue
         if ($item) { $null = $mdFiles.Add($item) }
