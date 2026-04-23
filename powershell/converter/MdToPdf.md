@@ -8,7 +8,7 @@ Mermaid ダイアグラムを含む Markdown ファイルを PDF に一括変換
 
 | 要件 | 詳細 |
 |------|------|
-| PowerShell | 5.1 以上 |
+| PowerShell | 7.6 以上（推奨）/ 5.1 以上（客先環境） |
 | Node.js | 任意の安定版（`node` コマンドが PATH に存在すること） |
 | npm パッケージ | 初回実行時に自動インストール（下記参照） |
 
@@ -120,3 +120,36 @@ Chromium（約 170 MB）のダウンロードが発生します。
 - `-Pattern` に親ディレクトリを含めない場合（例: `"*.md"`）はカレントディレクトリが検索対象になります。
 - `-FileList` で指定したファイルのうち存在しないものはスキップされます（エラーにはなりません）。
 - npm パッケージは `%LOCALAPPDATA%\md-to-pdf-ps\` に永続保存されるため、2 回目以降はインストール不要です。
+
+---
+
+## 客先環境（PS 5.1）への配布時の注意
+
+客先環境が Windows PowerShell 5.1 の場合、以下の点に注意してください。
+
+### スクリプトファイルのエンコーディング
+
+PS 5.1 は BOM なし UTF-8 ファイルをシステム既定エンコーディング（日本語環境では Shift-JIS）として読み込みます。  
+スクリプトを渡す際は **UTF-8 BOM あり** で保存してください。
+
+```powershell
+# PS 5.1 環境で保存する場合（UTF8 = BOM あり）
+Set-Content -Path .\MdToPdf.ps1 -Value (Get-Content .\MdToPdf.ps1 -Raw -Encoding UTF8) -Encoding UTF8
+```
+
+> PS 7 で `Set-Content -Encoding UTF8` を使うと BOM なしで保存されます。  
+> 客先向けファイルは PS 5.1 環境で保存するか、上記コマンドで変換してください。
+
+### `-FileList` で渡すテキストファイル
+
+ファイルリスト（`-FileList` に指定するテキストファイル）も **UTF-8 BOM あり** または **UTF-8 BOM なし**（ASCII のみの場合は問題なし）で作成してください。  
+Shift-JIS で保存されたファイルリストはパスの読み込みに失敗する場合があります。
+
+### 実行ポリシーの確認
+
+PS 5.1 は実行ポリシーが `Restricted`（デフォルト）の場合、スクリプトを実行できません。  
+客先での初回実行前に以下を案内してください。
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
