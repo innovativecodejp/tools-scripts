@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ─── defaults ────────────────────────────────────────────────────────────────
+
+MAX_DEPTH=2
+RECURSIVE=0
+SORT_BY="name"
+EXCLUDES=()
+MIN_BYTES=0
+TARGET=""
+
+# ─── usage ───────────────────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage: sizetree [OPTIONS] [PATH]
+
+  ディレクトリをツリー形式でサイズ付きに表示します。
+
+Options:
+  -d, --depth N       表示する最大深さ (デフォルト: 2)
+  -r, --recursive     深さ制限なしで全展開
+  -s, --sort-size     各階層をサイズ降順でソート (デフォルト: 名前順)
+      --exclude PAT   名前が PAT にマッチするエントリを除外 (複数指定可)
+      --min-size SZ   SZ 未満のエントリを省略 (例: 1M, 500K, 2G)
+  -h, --help          このヘルプを表示
+
+Examples:
+  sizetree .
+  sizetree -d 3 -s /var
+  sizetree -r --exclude 'node_modules' --exclude '.git' ~/project
+  sizetree --min-size 10M /home
+EOF
+  exit 0
+}
+
+# ─── helpers ─────────────────────────────────────────────────────────────────
+
+# Parse human-readable size (e.g. "10M", "500K", "2G") to bytes
+parse_size() {
+  local sz="$1"
+  local num="${sz//[KMGTkmgt]/}"
+  local unit="${sz//[0-9.]/}"
+  case "${unit^^}" in
+    K) echo $(( num * 1024 )) ;;
+    M) echo $(( num * 1024 * 1024 )) ;;
+    G) echo $(( num * 1024 * 1024 * 1024 )) ;;
+    T) echo $(( num * 1024 * 1024 * 1024 * 1024 )) ;;
+    *) echo "$num" ;;
+  esac
+}
+
+# Format bytes to human-readable, fixed 6-char width (right-aligned)
+format_size() {
+  local bytes="$1"
+  local val unit
+  if   (( bytes >= 1073741824 )); then
+    val=$(( bytes * 10 / 1073741824 ))
+    printf "%4d.%dG" $(( val / 10 )) $(( val % 10 ))
+  elif (( bytes >= 1048576 )); then
+    val=$(( bytes * 10 / 1048576 ))
+    printf "%4d.%dM" $(( val / 10 )) $(( val % 10 ))
+  elif (( bytes >= 1024 )); then
+    val=$(( bytes * 10 / 1024 ))
+    printf "%4d.%dK" $(( val / 10 )) $(( val % 10 ))
+  else
+    printf "%6dB" "$bytes"
+  fi
+}
+
+# Get size in bytes for a path (GNU/BSD compatible)
+get_size() {
+  local path="$1"
+  local size
+  if du --version &>/dev/null 2>&1; then
+    # GNU du
+    size=$(du -sb "$path" 2>/dev/null | cut -f1)
+  else
+    # BSD du (macOS) — outputs in 512-byte blocks
+    size=$(du -sk "$path" 2>/dev/null | cut -f1)
+    size=$(( size * 1024 ))
+  fi
+  echo "${size:-0}"
+}
+
+# Check if a name matches any --exclude pattern
+is_excluded() {
+  local name="$1"
+  local pat
+  for pat in "${EXCLUDES[@]+"${EXCLUDES[@]}"}"; do
+    case "$name" in
+      $pat) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# ─── core ────────────────────────────────────────────────────────────────────
+
+print_tree() {
+  local dir="$1"
+  local depth="$2"
+  local prefix="$3"
+
+  # Collect entries (dirs first, then files, both sorted by chosen method)
+  local -a entries=()
+  local entry name
+
+  while IFS= read -r -d '' entry; do
+    name="$(basename "$entry")"
+    is_excluded "$name" && continue
+
+    local size
+    size=$(get_size "$entry")
+    (( size < MIN_BYTES )) && continue
+
+    entries+=("$size"$'\t'"$entry")
+  done < <(find "$dir" -maxdepth 1 -mindepth 1 -print0 2>/dev/null)
+
+  if [[ ${#entries[@]} -eq 0 ]]; then
+    return
+  fi
+
+  # Sort
+  local -a sorted=()
+  if [[ "$SORT_BY" == "size" ]]; then
+    while IFS= read -r line; do
+      sorted+=("$line")
+    done < <(printf '%s\n' "${entries[@]}" | sort -t$'\t' -k1 -rn)
+  else
+    while IFS= read -r line; do
+      sorted+=("$line")
+    done < <(printf '%s\n' "${entries[@]}" | sort -t$'\t' -k2)
+  fi
+
+  local total="${#sorted[@]}"
+  local idx=0
+
+  for item in "${sorted[@]}"; do
+    local size_bytes entry_path connector child_prefix
+    size_bytes="${item%%$'\t'*}"
+    entry_path="${item#*$'\t'}"
+    name="$(basename "$entry_path")"
+
+    idx=$(( idx + 1 ))
+    if (( idx == total )); then
+      connector="└── "
+      child_prefix="${prefix}    "
+    else
+      connector="├── "
+      child_prefix="${prefix}│   "
+    fi
+
+    local size_str
+    size_str="$(format_size "$size_bytes")"
+
+    if [[ -d "$entry_path" ]]; then
+      printf '%s%s[%s] %s/\n' "$prefix" "$connector" "$size_str" "$name"
+      if [[ "$RECURSIVE" -eq 1 ]] || (( depth + 1 < MAX_DEPTH )); then
+        print_tree "$entry_path" $(( depth + 1 )) "$child_prefix"
+      fi
+    else
+      printf '%s%s[%s] %s\n' "$prefix" "$connector" "$size_str" "$name"
+    fi
+  done
+}
+
+# ─── argument parsing ─────────────────────────────────────────────────────────
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage ;;
+    -d|--depth)
+      [[ -z "${2:-}" ]] && { echo "Error: --depth requires a number" >&2; exit 1; }
+      MAX_DEPTH="$2"; shift 2 ;;
+    -r|--recursive)
+      RECURSIVE=1; shift ;;
+    -s|--sort-size)
+      SORT_BY="size"; shift ;;
+    --exclude)
+      [[ -z "${2:-}" ]] && { echo "Error: --exclude requires a pattern" >&2; exit 1; }
+      EXCLUDES+=("$2"); shift 2 ;;
+    --min-size)
+      [[ -z "${2:-}" ]] && { echo "Error: --min-size requires a value" >&2; exit 1; }
+      MIN_BYTES="$(parse_size "$2")"; shift 2 ;;
+    -*)
+      echo "Error: unknown option '$1'" >&2; exit 1 ;;
+    *)
+      TARGET="$1"; shift ;;
+  esac
+done
+
+TARGET="${TARGET:-.}"
+
+if [[ ! -d "$TARGET" ]]; then
+  echo "Error: '$TARGET' is not a directory" >&2
+  exit 1
+fi
+
+# ─── main ─────────────────────────────────────────────────────────────────────
+
+root_size=$(get_size "$TARGET")
+root_fmt="$(format_size "$root_size")"
+printf '[%s] %s\n' "$root_fmt" "$(realpath "$TARGET")"
+
+print_tree "$TARGET" 0 ""
