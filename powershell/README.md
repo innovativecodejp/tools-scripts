@@ -20,6 +20,28 @@ Windows 環境向けの PowerShell 自動化ツールです。
 | [MdToPdf.ps1](converter/MdToPdf.ps1) | Mermaid ダイアグラムを含む Markdown を PDF に一括変換。`-AiMermaid` で自然言語→Mermaid自動生成に対応 | [仕様書](converter/MdToPdf.md) / [AI機能仕様](docs/AiMermaid.md) |
 | [Set-AiConfig.ps1](converter/Set-AiConfig.ps1) | Claude API のキーとモデルをユーザー環境変数に保存（`-AiMermaid` 使用前に一度だけ実行） | [仕様書](docs/Set-AiConfig.md) |
 
+## プロファイル
+
+| ファイル | 概要 | 用途 |
+|---|---|---|
+| [Microsoft.PowerShell_profile.ps1](Microsoft.PowerShell_profile.ps1) | PowerShell 7 用のプロファイルファイル。現在は `KillLine` 関数を定義しています。 | リポジトリで管理し、使用時は PowerShell 7 の `$PROFILE` が指す実際のパスへ配置して利用します。 |
+
+PowerShell 7 では、現在のプロファイル配置先を次のコマンドで確認できます。
+
+```powershell
+$PROFILE
+```
+
+このリポジトリ上の `Microsoft.PowerShell_profile.ps1` は、PowerShell 7 のプロファイル本体として使う前提の管理用ファイルです。必要な設定をここに追記し、実運用時は `$PROFILE` の実パスに配置してください。
+
+運用時は、`Microsoft.PowerShell_profile.ps1` と同じディレクトリ配下に `converter/` `tools/` `mail/` `file/` などのフォルダをこのリポジトリと同様の構成で配置して使用します。
+
+現在のプロファイルには `KillLine` 関数を定義してあり、`tools\KillLine.ps1` を呼び出せます。
+
+```powershell
+KillLine
+```
+
 ## 共通の使い方
 
 PowerShell を開き、スクリプトのあるディレクトリへ移動してから実行してください。
