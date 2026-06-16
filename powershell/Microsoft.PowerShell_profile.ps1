@@ -23,3 +23,10 @@ function KillLine {
     # 実体スクリプトを実行します。
     & $scriptPath
 }
+
+# converter\MdToPdf.ps1 をドットソースで読み込み、MdToPdf 関数を登録します。
+$mdToPdfPath = $Global:ConverterDir + 'MdToPdf.ps1'
+if (Test-Path $mdToPdfPath) {
+    # 関数をセッションに登録するため、& ではなくドットソースで読み込みます。
+    . $mdToPdfPath
+}

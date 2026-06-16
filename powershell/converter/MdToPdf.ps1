@@ -46,15 +46,20 @@
     AiMermaid 使用時、AI置換済みの中間Markdownを *.md.ai.md として保存する（学習・確認用）
 
 .EXAMPLE
-    .\MdToPdf.ps1 -Pattern "*.md"
-    .\MdToPdf.ps1 -Pattern "docs\*.md" -Recurse -OutputDir ".\pdf" -Force
-    .\MdToPdf.ps1 -FileList "files.txt" -FontSize 11 -Margin "15mm"
-    .\MdToPdf.ps1 -Pattern "*.md" -FontFamily "Yu Gothic, sans-serif" -HeadingFontSize 1.8
-    .\MdToPdf.ps1 -Pattern "*.md" -AiMermaid
-    .\MdToPdf.ps1 -Pattern "docs\*.md" -Recurse -AiMermaid -AiStrict -AiDebug -OutputDir ".\pdf" -Force
-#>
+    MdToPdf -Pattern "*.md"
+    MdToPdf -Pattern "docs\*.md" -Recurse -OutputDir ".\pdf" -Force
+    MdToPdf -FileList "files.txt" -FontSize 11 -Margin "15mm"
+    MdToPdf -Pattern "*.md" -FontFamily "Yu Gothic, sans-serif" -HeadingFontSize 1.8
+    MdToPdf -Pattern "*.md" -AiMermaid
+    MdToPdf -Pattern "docs\*.md" -Recurse -AiMermaid -AiStrict -AiDebug -OutputDir ".\pdf" -Force
 
-[CmdletBinding(DefaultParameterSetName = 'Pattern')]
+.NOTES
+    使い方: 本ファイルをドットソースで読み込むと MdToPdf 関数が使えます。
+        . "$PSScriptRoot\MdToPdf.ps1"   # またはプロファイルに記述
+        MdToPdf -Pattern "*.md"
+#>
+function MdToPdf {
+    [CmdletBinding(DefaultParameterSetName = 'Pattern')]
 param(
     [Parameter(ParameterSetName = 'Pattern', Mandatory = $true, Position = 0)]
     [string]$Pattern,
@@ -95,7 +100,7 @@ try {
     $null = Get-Command node -ErrorAction Stop
 } catch {
     Write-Fail 'Node.js が見つかりません。https://nodejs.org からインストールしてください。'
-    exit 1
+    return
 }
 
 # ─── ファイル収集 ─────────────────────────────────────────────────────────────
@@ -120,7 +125,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Pattern') {
 
 if ($mdFiles.Count -eq 0) {
     Write-Fail '変換対象のMarkdownファイルが見つかりませんでした。'
-    exit 1
+    return
 }
 
 # ─── 出力ディレクトリ作成 ────────────────────────────────────────────────────
@@ -133,13 +138,14 @@ if ($OutputDir) {
 $aiTotalInput  = 0
 $aiTotalOutput = 0
 $aiSkippedFiles = [System.Collections.ArrayList]@()
+$aiProcessedContents = @{}
 
 if ($AiMermaid) {
     # APIキー確認
     $aiApiKey = $env:ANTHROPIC_API_KEY
     if (-not $aiApiKey) {
         Write-Fail 'ANTHROPIC_API_KEY が設定されていません。先に .\Set-AiConfig.ps1 を実行してください。'
-        exit 1
+        return
     }
     $aiModel = $env:ANTHROPIC_MODEL
     if (-not $aiModel) { $aiModel = 'claude-sonnet-4-6' }
@@ -159,7 +165,7 @@ if ($AiMermaid) {
             $answer = Read-Host ''
             if ($answer -notmatch '^[yY]') {
                 Write-Info 'キャンセルしました。'
-                exit 0
+                return
             }
         }
 
@@ -195,35 +201,29 @@ if ($AiMermaid) {
 
         # スキップされたファイルを除外
         $mdFiles = $processedFiles | ForEach-Object { $_.File }
-        $script:aiProcessedContents = @{}
+        $aiProcessedContents = @{}
         foreach ($p in $processedFiles) {
-            $script:aiProcessedContents[$p.File.FullName] = $p.Content
+            $aiProcessedContents[$p.File.FullName] = $p.Content
         }
     }
 }
 
-# ─── ファイルペア構築（上書き確認）──────────────────────────────────────────
+# ─── ファイルペア構築（既存PDFは常に上書き）────────────────────────────────
 [System.Collections.ArrayList]$filePairs = @()
 $skipped = 0
 
 foreach ($file in $mdFiles) {
     $outDir  = if ($OutputDir) { $OutputDir } else { $file.DirectoryName }
     $outPath = Join-Path $outDir ([System.IO.Path]::ChangeExtension($file.Name, '.pdf'))
-
-    if ((Test-Path $outPath) -and -not $Force) {
-        Write-Skip "$($file.Name) -> スキップ（既に存在。-Force で上書き）"
-        $skipped++
-        continue
-    }
     $null = $filePairs.Add(@{ input = $file.FullName; output = $outPath })
 }
 
 if ($filePairs.Count -eq 0) {
-    Write-Info "変換するファイルがありません（スキップ: $skipped 件）。"
-    exit 0
+    Write-Info '変換するファイルがありません。'
+    return
 }
 
-Write-Step "$($filePairs.Count) 件のファイルを変換します（スキップ: $skipped 件）"
+Write-Step "$($filePairs.Count) 件のファイルを変換します"
 
 # ─── インストールディレクトリ（永続）────────────────────────────────────────
 $installDir      = Join-Path $env:LOCALAPPDATA 'md-to-pdf-ps'
@@ -237,7 +237,7 @@ if (-not (Test-Path $puppeteerCheck)) {
     $answer = Read-Host 'インストールしますか？ [y/N]'
     if ($answer -notmatch '^[yY]') {
         Write-Info 'キャンセルしました。'
-        exit 0
+        return
     }
 
     New-Item -ItemType Directory -Path $installDir -Force | Out-Null
@@ -280,6 +280,31 @@ marked.use(markedHighlight({
   }
 }));
 
+// ─── 見出しIDの自動付与（内部アンカーリンク対応）──────
+// marked@9 は見出しに id を付与しないため、GitHub互換のslugを生成して付与する。
+// これにより [text](#見出しのslug) 形式の内部リンクがPDF内で機能する。
+const githubSlugRegex = /[ -⁯⸀-⹿\\'!"#$%&()*+,./:;<=>?@[\]^`{|}~]/g;
+let headingSlugCounts = {};
+function githubSlug(value) {
+  let s = String(value).toLowerCase().trim()
+    .replace(/<[^>]*>/g, '')
+    .replace(githubSlugRegex, '')
+    .replace(/ /g, '-');
+  if (Object.prototype.hasOwnProperty.call(headingSlugCounts, s)) {
+    s = s + '-' + (++headingSlugCounts[s]);
+  } else {
+    headingSlugCounts[s] = 0;
+  }
+  return s;
+}
+marked.use({
+  renderer: {
+    heading(text, level, raw) {
+      return '<h' + level + ' id="' + githubSlug(raw) + '">' + text + '</h' + level + '>\n';
+    }
+  }
+});
+
 // ─── リソース読み込み ─────────────────────────────────
 const hljsCss = fs.readFileSync(
   path.join(__dirname, 'node_modules/highlight.js/styles/github.css'), 'utf-8'
@@ -300,6 +325,7 @@ if (!mermaidJs) {
 
 // ─── HTML 生成 ────────────────────────────────────────
 function buildHtml(markdown, inputFile, style, hljsCss) {
+  headingSlugCounts = {};   // ファイルごとにslug採番をリセット
   let body = marked.parse(markdown);
 
   // mermaid コードブロック → div.mermaid に変換
@@ -455,8 +481,8 @@ Set-Content -Path $nodeScriptPath -Value $nodeScript -Encoding UTF8
 # ─── 設定 JSON 作成 ──────────────────────────────────────────────────────────
 $filePairsWithContent = $filePairs | ForEach-Object {
     $pair = [PSCustomObject]$_
-    if ($AiMermaid -and $script:aiProcessedContents -and $script:aiProcessedContents.ContainsKey($pair.input)) {
-        $pair | Add-Member -NotePropertyName 'content' -NotePropertyValue $script:aiProcessedContents[$pair.input] -PassThru
+    if ($AiMermaid -and $aiProcessedContents -and $aiProcessedContents.ContainsKey($pair.input)) {
+        $pair | Add-Member -NotePropertyName 'content' -NotePropertyValue $aiProcessedContents[$pair.input] -PassThru
     } else {
         $pair
     }
@@ -538,3 +564,4 @@ if ($AiMermaid -and ($aiTotalInput + $aiTotalOutput) -gt 0) {
     Write-Host "  AI使用:   入力 $aiTotalInput / 出力 $aiTotalOutput tokens (合計 $aiTotal tokens)" -ForegroundColor Magenta
 }
 Write-Host '----------------------------------------' -ForegroundColor DarkGray
+}
