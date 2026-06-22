@@ -41,3 +41,15 @@
   - Register-KillLineTask.ps1 の登録引数から `-LogPath` を除去。
   - 既存ログフォルダ(`tools\logs`)を dev/配置先の両方で削除。
 - 確認: タスク再登録後に手動実行 → Last Result = 0、`logs` フォルダが再生成されないことを確認。
+
+### インストール状況チェックスクリプトを追加
+
+- 追加: [tools/CheckPsTools.ps1](../tools/CheckPsTools.ps1)
+  - `converter/` `excel/` `file/` `tools/` 配下のスクリプトが `$PROFILE` ディレクトリ配下にインストール済みかをチェックする。
+  - 未インストールのスクリプト名をカテゴリごとに一覧表示する。
+  - `$PROFILE` 本体とリポジトリの `Microsoft.PowerShell_profile.ps1` を SHA256 で比較し、一致/不一致を判定する。
+  - 読み取り専用。インストール先へのコピーは一切行わない(`Copy-Item`/`Move-Item` 等を含めない)。
+  - チェック結果は `[PSCustomObject]`(`MissingCount`/`Missing`/`ProfileEqual` 等)としても返す。
+- 関連変更:
+  - 実フォルダ `excle`(綴り誤り)を `excel` にリネームし、`$Global:ExcelDir`(`\excel\`)と一致させた。
+  - スクリプト名を当初の `Test-Installation.ps1` から `CheckPsTools.ps1` に変更。
