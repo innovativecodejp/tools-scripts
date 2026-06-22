@@ -21,21 +21,47 @@
 .PARAMETER Quiet
     指定すると、スキップ時のメッセージを出力しません。
 
+.PARAMETER LogPath
+    指定すると、実行結果 (終了 / スキップ / 未起動) をタイムスタンプ付きで
+    このファイルに追記します。親フォルダが無い場合は作成します。
+
 .EXAMPLE
     .\KillLine.ps1
 
 .EXAMPLE
     .\KillLine.ps1 -IdleThresholdMs 5000
+
+.EXAMPLE
+    .\KillLine.ps1 -LogPath C:\logs\KillLine.log
 #>
 
 [CmdletBinding()]
 param(
     [int]$IdleThresholdMs = 3000,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [string]$LogPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# 実行結果をログファイルに追記する (LogPath 未指定なら何もしない)
+function Write-KillLineLog {
+    param([string]$Message)
+
+    if ([string]::IsNullOrWhiteSpace($LogPath)) { return }
+    try {
+        $dir = Split-Path -Parent $LogPath
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $line = "[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
+        Add-Content -LiteralPath $LogPath -Value $line -Encoding UTF8
+    } catch {
+        # ログ書き込み失敗で本処理を止めない
+        if (-not $Quiet) { Write-Warning "ログ書き込みに失敗しました: $($_.Exception.Message)" }
+    }
+}
 
 Add-Type -ErrorAction SilentlyContinue @'
 using System;
@@ -75,6 +101,7 @@ public static class KillLineNative
 $lineProcess = Get-Process -Name 'LINE' -ErrorAction SilentlyContinue
 
 if ($null -eq $lineProcess) {
+    Write-KillLineLog 'LINE は起動していません。'
     return
 }
 
@@ -93,10 +120,21 @@ $idleMs = [KillLineNative]::GetIdleMilliseconds()
 
 # LINE が最前面 かつ 直近に入力あり → 入力中とみなしスキップ
 if ($isLineForeground -and $idleMs -lt $IdleThresholdMs) {
+    $msg = "LINE は使用中 (最前面 / 最終入力 ${idleMs}ms 前) のため終了をスキップしました。"
     if (-not $Quiet) {
-        Write-Host "LINE は使用中 (最前面 / 最終入力 ${idleMs}ms 前) のため終了をスキップしました。"
+        Write-Host $msg
     }
+    Write-KillLineLog $msg
     return
 }
 
 Stop-Process -Name 'LINE' -Force -ErrorAction SilentlyContinue
+
+# プロセス終了の反映を少し待ってから確認
+Start-Sleep -Milliseconds 800
+$still = Get-Process -Name 'LINE' -ErrorAction SilentlyContinue
+if ($null -eq $still) {
+    Write-KillLineLog 'LINE を終了しました。'
+} else {
+    Write-KillLineLog 'LINE の終了を試みましたが、まだ起動しています。'
+}
