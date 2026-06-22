@@ -30,3 +30,19 @@ if (Test-Path $mdToPdfPath) {
     # 関数をセッションに登録するため、& ではなくドットソースで読み込みます。
     . $mdToPdfPath
 }
+
+<#
+.SYNOPSIS
+    tools\InstallPsScript.ps1 を実行します。
+#>
+function InstallPsScript {
+    $scriptPath = $Global:ToolsDir + 'InstallPsScript.ps1'
+
+    # スクリプト未配置の状態で実行された場合は明示的に停止します。
+    if (-not (Test-Path $scriptPath)) {
+        throw "Script not found: $scriptPath"
+    }
+
+    # 実体スクリプトを実行します(引数はそのまま渡します)。
+    & $scriptPath @args
+}
