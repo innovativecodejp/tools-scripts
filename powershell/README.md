@@ -49,7 +49,7 @@ CheckPsTools
 |---|---|---|
 | [Diff.ps1](tools/Diff.ps1) | 指定したファイル／フォルダの差分を TortoiseGit の GUI で開く。2ファイル比較・リビジョン指定にも対応 | [仕様書](docs/Diff.md) |
 | [KillLine.ps1](tools/KillLine.ps1) | LINE.exe を終了（使用中はスキップ）。`-s` でタスクスケジューラによる定期実行を登録、`-e` で解除 | – |
-| [InstallPsScript.ps1](tools/InstallPsScript.ps1) | スクリプトを `$PROFILE` 配下へ複写し、拡張子なしで起動できるラッパー関数をプロファイルへ追加 | – |
+| [InstallPsScript.ps1](tools/InstallPsScript.ps1) | スクリプトを `$PROFILE` 配下へ複写し、拡張子なしで起動できるラッパー関数をプロファイルへ追加。`-c` で複写のみ | – |
 | [CheckPsTools.ps1](tools/CheckPsTools.ps1) | 各スクリプトが `$PROFILE` 配下へインストール済みか、`.ps1` が BOM なし + LF に揃っているかをチェック（読み取り専用） | – |
 
 ## プロファイル
@@ -99,6 +99,26 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 ## ツール詳細
+
+### InstallPsScript.ps1
+
+スクリプトを `$PROFILE` 配下へ複写し、拡張子なしで起動できるラッパー関数をプロファイルへ追加します。
+
+```powershell
+# 複写 + 関数登録 + $PROFILE 同期
+.\powershell\tools\InstallPsScript.ps1 tools\Diff.ps1
+
+# 複写のみ（既にインストール済みのスクリプトを修正して置き直す場合）
+.\powershell\tools\InstallPsScript.ps1 tools\Diff.ps1 -c
+```
+
+> **`-CopyOnly` (`-c`) を使う場面**  
+> 既に登録済みのスクリプトを修正しただけなら、関数登録（③）は不要です。`-c` を付けると複写だけを行います。
+
+> **関数ライブラリ形式は自動でスキップされます**  
+> `MdToPdf.ps1` や `AiMermaid.ps1` のように**ファイル全体が関数定義だけ**で構成されたスクリプトは、実行しても関数を定義するだけで何も起きません（`&` で呼ぶと子スコープで定義が消えます）。  
+> この形式にラッパー関数を作ると、プロファイル前半でドットソース登録された本体を**後から上書き**してしまい、エラーも出ずに無反応になります。  
+> そのため AST を解析して自動検出し、③④ をスキップしてドットソースの記述例を案内します。プロファイルには手動で `. ($Global:ConverterDir + 'MdToPdf.ps1')` のように記述してください。
 
 ### Diff.ps1
 

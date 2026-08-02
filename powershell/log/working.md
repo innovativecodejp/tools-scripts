@@ -202,3 +202,32 @@
     すべて Function として解決すること、`MdToPdf` がラッパーではなく本体(`-Pattern` を持つ)で
     あること、`AiMermaid` / `Set-AiConfig` 関数が存在しないことを確認。
   - `CheckPsTools` … スクリプト 7 件すべてインストール済み / プロファイル一致。
+
+### InstallPsScript に -CopyOnly と関数ライブラリ検出を追加
+
+- 対象: [tools/InstallPsScript.ps1](../tools/InstallPsScript.ps1) / [README.md](../README.md)
+- きっかけ:
+  - 上記の作業中に、再配置目的で converter へ `InstallPsScript.ps1` を実行してしまい、
+    不要なラッパー関数を作って `MdToPdf` を壊しかけた。同じ事故を仕組みで防ぐ。
+- 変更内容:
+  - `-CopyOnly`(エイリアス `-c`) を追加。② の複写のみを行い、③ 関数定義の追加と
+    ④ `$PROFILE` の同期をスキップする。既にインストール済みのスクリプトを修正して
+    置き直すだけの用途を想定。
+  - `Test-FunctionLibrary` を追加。AST を解析し、**トップレベルに param ブロックが無く、
+    実行文がすべて関数定義**であるスクリプトを「関数ライブラリ形式」と判定する。
+    該当する場合は ③④ を自動スキップし、ドットソースの記述例を案内する。
+    (この形式は `&` で実行しても関数が子スコープで消えるだけで何も起きず、
+     ラッパー関数を作るとドットソース済みの本体を後から上書きしてしまうため)
+  - 見出しの「関数名」欄は、登録しない場合 `(登録しません)` と表示する。
+- 判定の実測(リポジトリ内 11 本):
+  - True : `converter/MdToPdf.ps1`、`converter/AiMermaid.ps1` … 実際に壊れた 2 本のみ
+  - False: 通常スクリプト(Diff / KillLine / InstallPsScript / CheckPsTools)、
+    トップレベル実行文を持つ `Set-AiConfig.ps1`、テスト、プロファイル
+- 確認:
+  - 疑似リポジトリで 4 パターンを実行。① 通常スクリプト → 従来どおり ③④ が動作、
+    ② `-CopyOnly` → ② のみ、③ `-c` エイリアス → 同上、
+    ④ 関数ライブラリ形式 → 自動スキップし `. ($Global:ConverterDir + 'ZzzLib.ps1')` を案内。
+    テスト用に配置先へ複写されたファイルはすべて削除済み。
+  - 実リポジトリで `InstallPsScript.ps1 tools\InstallPsScript.ps1 -c` を実行し、複写のみで
+    プロファイルが変化しないことを確認。
+  - `Invoke-Pester tests\unit` … 36 件すべて成功。`CheckPsTools` も全項目 OK。

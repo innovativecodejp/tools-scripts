@@ -16,6 +16,17 @@
          (＝$PROFILE がリポジトリの追加前バージョンと一致)であれば $PROFILE を上書きする。
          それ以外はバージョンが異なるため $PROFILE を更新せず、赤字で通知する。
 
+    -CopyOnly を指定すると ② だけを行い、③ ④ をスキップします。
+    既にインストール済みのスクリプトを修正し、配置先へ置き直したいだけの場合に
+    使用してください(③ を走らせる必要がないため)。
+
+    また、ファイル全体が関数定義だけで構成された「関数ライブラリ形式」の
+    スクリプト(例: converter\MdToPdf.ps1 / converter\AiMermaid.ps1)を検出した
+    場合は、③ ④ を自動的にスキップします。この形式は & で実行しても関数が
+    子スコープで消えるだけで何も起きないため、ラッパー関数を作ると
+    ドットソースで登録された本体を上書きして機能しなくなります。
+    プロファイルには手動でドットソース( . $path )を記述してください。
+
 .PARAMETER ScriptFile
     インストールするスクリプト(.ps1)。リポジトリルート配下のパスを指定する。
     例: converter\Foo.ps1 / tools\Bar.ps1
@@ -23,18 +34,57 @@
 .PARAMETER SourceRoot
     リポジトリ(ソース)のルート。既定はこのスクリプトの 1 つ上(powershell/)。
 
+.PARAMETER CopyOnly
+    ② の複写のみを行い、③ 関数定義の追加と ④ $PROFILE の同期をスキップする。
+    エイリアス: -c
+
 .EXAMPLE
     .\tools\InstallPsScript.ps1 tools\KillLine.ps1
+
+.EXAMPLE
+    .\tools\InstallPsScript.ps1 tools\KillLine.ps1 -c
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
     [string]$ScriptFile,
 
-    [string]$SourceRoot = (Split-Path -Parent $PSScriptRoot)
+    [string]$SourceRoot = (Split-Path -Parent $PSScriptRoot),
+
+    [Alias('c')]
+    [switch]$CopyOnly
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ── 関数ライブラリ形式の判定 ─────────────────────────────────────────
+# トップレベルに param(...) が無く、実行文が関数定義だけで構成されている
+# スクリプトを「関数ライブラリ」とみなす(例: MdToPdf.ps1 / AiMermaid.ps1)。
+#
+# この形式は実行しても関数を定義するだけで、& による呼び出しでは子スコープで
+# 定義が消えるため何も起きない。ラッパー関数を作るとドットソースで登録された
+# 本体を後から上書きしてしまい、エラーも出ずに無反応になる。
+function Test-FunctionLibrary {
+    param([string]$Path)
+
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$null)
+    if (-not $ast) { return $false }
+
+    # トップレベルに param ブロックがあるなら、実行して動く通常のスクリプト。
+    if ($ast.ParamBlock) { return $false }
+    if (-not $ast.EndBlock) { return $false }
+
+    $statements = @($ast.EndBlock.Statements)
+    if ($statements.Count -eq 0) { return $false }
+
+    # 実行文が 1 つでもあれば通常のスクリプト。すべて関数定義ならライブラリ。
+    foreach ($statement in $statements) {
+        if ($statement -isnot [System.Management.Automation.Language.FunctionDefinitionAst]) {
+            return $false
+        }
+    }
+    return $true
+}
 
 # ── パス解決 ─────────────────────────────────────────────────────────
 if ([string]::IsNullOrWhiteSpace($PROFILE)) {
@@ -68,10 +118,13 @@ $installRoot   = Split-Path -Parent $PROFILE
 $repoProfile   = Join-Path $rootFull 'Microsoft.PowerShell_profile.ps1'
 $destPath      = Join-Path $installRoot $relative
 
+# 関数ライブラリ形式なら、ラッパー関数を作ってはいけないので複写のみに切り替える。
+$isLibrary = Test-FunctionLibrary -Path $srcFull
+
 Write-Host ''
 Write-Host '=== スクリプトのインストール ===' -ForegroundColor Cyan
 Write-Host ("対象      : {0}" -f $relative)
-Write-Host ("関数名    : {0}" -f $name)
+Write-Host ("関数名    : {0}" -f $(if ($CopyOnly -or $isLibrary) { '(登録しません)' } else { $name }))
 Write-Host ("複写先    : {0}" -f $destPath)
 Write-Host ''
 
@@ -82,6 +135,23 @@ if (-not (Test-Path -LiteralPath $destDir)) {
 }
 Copy-Item -LiteralPath $srcFull -Destination $destPath -Force
 Write-Host ("② 複写完了: {0}" -f $destPath) -ForegroundColor Green
+
+# ── ③ ④ をスキップする条件 ─────────────────────────────────────────
+if ($isLibrary) {
+    Write-Host ''
+    Write-Host ("関数ライブラリ形式のため、③ 関数定義の追加と ④ `$PROFILE の同期は行いません。" ) -ForegroundColor Yellow
+    Write-Host ('  (トップレベルが関数定義のみ。& で実行しても子スコープで消えるため') -ForegroundColor Gray
+    Write-Host ('   ラッパー関数を作るとドットソース済みの本体を上書きしてしまいます)') -ForegroundColor Gray
+    Write-Host ('  プロファイルには手動でドットソースを記述してください:') -ForegroundColor Gray
+    Write-Host ("      . (`$Global:{0}Dir + '{1}.ps1')" -f (Get-Culture).TextInfo.ToTitleCase($category), $name) -ForegroundColor Gray
+    return
+}
+
+if ($CopyOnly) {
+    Write-Host ''
+    Write-Host ("-CopyOnly が指定されたため、③ 関数定義の追加と ④ `$PROFILE の同期は行いません。") -ForegroundColor Yellow
+    return
+}
 
 # ── ③ リポジトリのプロファイルへラッパー関数を追加 ───────────────────
 if (-not (Test-Path -LiteralPath $repoProfile)) {
