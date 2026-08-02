@@ -101,3 +101,55 @@
   - 既定(引数なし)の実行は LINE 起動中のため未実施。
   - 補足: 現在 `KillLine` タスクは Status = Disabled / Next Run Time = N/A。
     有効化するには `KillLine -s` で再登録する。
+
+## 2026-08-03
+
+### TortoiseGit の差分を開く Diff.ps1 を追加
+
+- 対象: [tools/Diff.ps1](../tools/Diff.ps1) / [tools/InstallPsScript.ps1](../tools/InstallPsScript.ps1) /
+  [Microsoft.PowerShell_profile.ps1](../Microsoft.PowerShell_profile.ps1) /
+  [tests/unit/Diff.Tests.ps1](../tests/unit/Diff.Tests.ps1) / [docs/Diff.md](../docs/Diff.md)
+- 仕様:
+  - `Diff <パス>` … 作業ツリーの内容と HEAD(BASE) を TortoiseGit の差分ビューアで比較。
+  - `Diff <A> <B>` … 2 ファイルを直接比較(`-Path2`)。BASE 不要のため Git 管理外でも可。
+  - `Diff <パス> -s <rev> -e <rev>` … リビジョン指定。`-s`/`-e` は `-StartRev`/`-EndRev` のエイリアス。
+  - `-Unified` / `-Line <n>` / `-Wait` / `-TortoiseGitProc <path>` / `-WhatIf` に対応。
+  - パスがフォルダなら `repostatus`(変更確認ダイアログ)、フォルダ + リビジョンなら `showcompare` を
+    発行する。引数なしはカレントディレクトリ扱い。
+- 変更内容:
+  - **`Diff` は組み込みエイリアス `diff`(= `Compare-Object`)と衝突する**。PowerShell のコマンド解決順は
+    Alias > Function > Cmdlet > Application のため、プロファイルに `function Diff` を定義しても関数は
+    呼ばれない(実測: `Cannot process command because of one or more missing mandatory parameters:
+    DifferenceObject.`)。そこでプロファイルの関数定義の前にエイリアス解除行を置く方式にした。
+    ReadOnly なエイリアスも `Remove-Item -LiteralPath Alias:<名前> -Force` で解除できる(Constant は不可)。
+    `Compare-Object` 本体と `compare` エイリアスは残るため機能欠落はない。
+  - `InstallPsScript.ps1` の ③ を拡張し、**関数名と同名のエイリアスが存在する場合は解除行も自動生成**する
+    ようにした。これで `InstallPsScript tools\Diff.ps1` の 1 コマンドでインストールが完結する。
+    判定は「実行中セッションに `Get-Alias <名前>` が存在するか」のため、初回インストールは解除前の
+    新規セッションで実行する必要がある(この点は docs/Diff.md に明記)。
+  - 引数は配列ではなく **1 本の文字列**として組み立て、`Start-Process -ArgumentList` に渡す。
+    呼び出し演算子 `&` では空白を含む引数が `"/path:D:\a b\x.txt"` のようにトークン全体で引用され、
+    TortoiseGit 側のパーサ挙動に依存するため。公式ドキュメント
+    (`TortoiseGit_en\tgit-automation.html` / Appendix D)の例と同じく「コロンの後ろだけ」を引用する。
+  - `TortoiseGitProc.exe` の探索は ①明示指定 → ②レジストリ(HKCU/HKLM/WOW6432Node) → ③PATH →
+    ④`%ProgramFiles%`。**HKCU は実機で `ProcPath`/`Directory` が空文字だった**ため、
+    `[string]::IsNullOrWhiteSpace` による空判定を必ず通す。
+  - Git 管理下の判定は親方向へ `.git` を探す方式。submodule / worktree では `.git` がファイルになるため
+    ディレクトリ・ファイルの両方を許容する。`git.exe` に依存しないので Git 未導入環境でも誤判定しない。
+    `-Path2` 指定時は BASE 不要のためこのチェックを行わない。
+- 据え置いた点:
+  - house style に合わせ `$ErrorActionPreference = 'Stop'` としたため、`Write-Error` は終了エラーになる。
+    `-ErrorAction SilentlyContinue` を渡しても抑制されない(スクリプト側の代入が勝つ)。テストもこれに
+    合わせて `Should -Throw` で書いている。
+  - `-Log` / `-Blame` など diff 以外の TortoiseGit GUI は含めていない(`Diff` という名前の責務を超えるため)。
+- 確認:
+  - Parser による構文チェック(Diff.ps1 / InstallPsScript.ps1 / Diff.Tests.ps1)… OK。
+  - `Invoke-Pester tests\unit\Diff.Tests.ps1` … 15 件すべて成功(`-WhatIf` のため GUI は起動しない)。
+    ※ 本環境には Pester 3.4.0 しか無かったため、Pester 6.0.1 を CurrentUser スコープへ追加導入した。
+  - 実機確認: `Diff .\README.md -s HEAD~3 -e HEAD` で TortoiseGitMerge が起動
+    (ウィンドウタイトル `README.md: 80e651e2 - TortoiseGitMerge`)。空白を含むパスでの
+    2 ファイル比較も起動を確認。
+  - インストール後の新規セッションで `Get-Command Diff` = Function、`Get-Alias diff` = なし、
+    `Compare-Object 1,2 2,3` は正常動作を確認。
+  - `CheckPsTools.ps1` は Diff.ps1 を自動的に検出対象に含む(登録作業は不要)。
+    なお `tools/CheckPsTools.ps1` 自体は未インストールのままで、今回は触れていない。

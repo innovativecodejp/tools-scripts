@@ -9,7 +9,9 @@
 
       ② <script-file.ps1> を $PROFILE のあるディレクトリ配下(同じ相対パス)へ複写する。
       ③ リポジトリの Microsoft.PowerShell_profile.ps1 に、拡張子なしで起動できる
-         ラッパー関数の定義を追加する。
+         ラッパー関数の定義を追加する。関数名と同名のエイリアスが存在する場合
+         (例: Diff → 組み込みの diff = Compare-Object) は、エイリアスの方が
+         優先されて関数が呼ばれないため、解除する行も併せて追加する。
       ④ Microsoft.PowerShell_profile.ps1 と $PROFILE を比較し、差分が③の追加のみ
          (＝$PROFILE がリポジトリの追加前バージョンと一致)であれば $PROFILE を上書きする。
          それ以外はバージョンが異なるため $PROFILE を更新せず、赤字で通知する。
@@ -119,8 +121,25 @@ if ($alreadyDefined) {
     $repoAfter = $repoBefore
 }
 else {
+    # PowerShell のコマンド解決順は Alias > Function > Cmdlet > Application のため、
+    # 関数名と同名のエイリアス(例: diff → Compare-Object)があると関数は呼ばれない。
+    # 該当する場合は解除行を関数定義の前に出力する。
+    # ReadOnly なエイリアスも Remove-Item -Force で解除できる(Constant は不可)。
+    $shadowAlias = Get-Alias -Name $name -ErrorAction SilentlyContinue
+
     # KillLine と同じスタイルのラッパー関数を生成する。
-    $blockLines = @(
+    $blockLines = @('')
+
+    if ($shadowAlias) {
+        $blockLines += @(
+            ("# 組み込みエイリアス {0} ({1}) は関数より優先されるため解除します。" -f $name, $shadowAlias.Definition)
+            ("if (Test-Path Alias:{0}) {{" -f $name)
+            ("    Remove-Item -LiteralPath Alias:{0} -Force" -f $name)
+            '}'
+        )
+    }
+
+    $blockLines += @(
         ''
         '<#'
         '.SYNOPSIS'
@@ -148,6 +167,9 @@ else {
     $enc = New-Object System.Text.UTF8Encoding($hasBom)
     [System.IO.File]::WriteAllText($repoProfile, $repoAfter, $enc)
     Write-Host ("③ 関数 {0} をリポジトリのプロファイルに追加しました。" -f $name) -ForegroundColor Green
+    if ($shadowAlias) {
+        Write-Host ("   同名のエイリアス {0} ({1}) を解除する行も併せて追加しました。" -f $name, $shadowAlias.Definition) -ForegroundColor Yellow
+    }
 }
 
 # ── ④ プロファイル比較 → 差分が③のみなら $PROFILE を上書き ───────────

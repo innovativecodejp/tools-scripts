@@ -22,17 +22,18 @@ Windows 環境向けの PowerShell 自動化ツールです。
 
 ### tools — ユーティリティ
 
-| スクリプト | 概要 |
-|---|---|
-| [KillLine.ps1](tools/KillLine.ps1) | LINE.exe を終了（使用中はスキップ）。`-s` でタスクスケジューラによる定期実行を登録、`-e` で解除 |
-| [InstallPsScript.ps1](tools/InstallPsScript.ps1) | スクリプトを `$PROFILE` 配下へ複写し、拡張子なしで起動できるラッパー関数をプロファイルへ追加 |
-| [CheckPsTools.ps1](tools/CheckPsTools.ps1) | 各スクリプトが `$PROFILE` 配下へインストール済みかをチェック（読み取り専用） |
+| スクリプト | 概要 | 詳細 |
+|---|---|---|
+| [Diff.ps1](tools/Diff.ps1) | 指定したファイル／フォルダの差分を TortoiseGit の GUI で開く。2ファイル比較・リビジョン指定にも対応 | [仕様書](docs/Diff.md) |
+| [KillLine.ps1](tools/KillLine.ps1) | LINE.exe を終了（使用中はスキップ）。`-s` でタスクスケジューラによる定期実行を登録、`-e` で解除 | – |
+| [InstallPsScript.ps1](tools/InstallPsScript.ps1) | スクリプトを `$PROFILE` 配下へ複写し、拡張子なしで起動できるラッパー関数をプロファイルへ追加 | – |
+| [CheckPsTools.ps1](tools/CheckPsTools.ps1) | 各スクリプトが `$PROFILE` 配下へインストール済みかをチェック（読み取り専用） | – |
 
 ## プロファイル
 
 | ファイル | 概要 | 用途 |
 |---|---|---|
-| [Microsoft.PowerShell_profile.ps1](Microsoft.PowerShell_profile.ps1) | PowerShell 7 用のプロファイルファイル。現在は `KillLine` 関数を定義しています。 | リポジトリで管理し、使用時は PowerShell 7 の `$PROFILE` が指す実際のパスへ配置して利用します。 |
+| [Microsoft.PowerShell_profile.ps1](Microsoft.PowerShell_profile.ps1) | PowerShell 7 用のプロファイルファイル。現在は `KillLine` / `InstallPsScript` / `Diff` 関数と `MdToPdf` の読み込みを定義しています。 | リポジトリで管理し、使用時は PowerShell 7 の `$PROFILE` が指す実際のパスへ配置して利用します。 |
 
 PowerShell 7 では、現在のプロファイル配置先を次のコマンドで確認できます。
 
@@ -44,7 +45,7 @@ $PROFILE
 
 運用時は、`Microsoft.PowerShell_profile.ps1` と同じディレクトリ配下に `converter/` `tools/` `mail/` `file/` などのフォルダをこのリポジトリと同様の構成で配置して使用します。
 
-現在のプロファイルには `KillLine` 関数を定義してあり、`tools\KillLine.ps1` を呼び出せます。引数はそのままスクリプトへ渡されます。
+プロファイルに定義された関数は、いずれも `tools\` 配下の実体スクリプトを呼び出します。引数はそのままスクリプトへ渡されます。関数定義は `InstallPsScript.ps1` が自動生成します。
 
 ```powershell
 # LINE.exe を直ちに終了（使用中とみなせる場合はスキップ）
@@ -75,6 +76,37 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 ## ツール詳細
+
+### Diff.ps1
+
+指定したファイル／フォルダの差分を TortoiseGit の GUI（既定では TortoiseGitMerge）で開きます。  
+`TortoiseGitProc.exe` はレジストリ・`PATH`・既定のインストール先の順に自動探索します。
+
+```powershell
+# 作業ツリーの内容と HEAD(BASE) を比較
+Diff .\src\App.cs
+
+# 2 ファイルを直接比較（Git 管理下でなくても可）
+Diff .\a.txt .\b.txt
+
+# リビジョンを指定して比較
+Diff .\src\App.cs -s HEAD~3 -e HEAD
+
+# unified diff 形式で開き、120 行目へスクロール
+Diff .\src\App.cs -Unified -Line 120
+
+# フォルダ指定 → 変更確認ダイアログ（引数なしならカレント）
+Diff .\src
+
+# 実際には起動せず、組み立てられるコマンドラインだけ確認
+Diff .\src\App.cs -WhatIf
+```
+
+> **注意**: `diff` は `Compare-Object` への組み込みエイリアスで、PowerShell の解決順（Alias > Function）により
+> 関数より優先されます。そのためプロファイルでは `Diff` 関数の定義前にこのエイリアスを解除しています。
+> `Compare-Object` 本体と `compare` エイリアスは引き続き利用できます。
+
+詳細なパラメーター説明・発行コマンドの切り替え表は [Diff.md](docs/Diff.md) を参照してください。
 
 ### MdToPdf.ps1
 

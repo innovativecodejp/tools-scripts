@@ -27,6 +27,7 @@ tools-scripts/
 | ツール | 場所 | 概要 |
 |---|---|---|
 | MdToPdf.ps1 | [powershell/converter/](powershell/converter/) | Mermaid 対応 Markdown → PDF 一括変換 |
+| Diff.ps1 | [powershell/tools/](powershell/tools/) | TortoiseGit の差分画面をコマンドから起動 |
 
 ### Python
 
