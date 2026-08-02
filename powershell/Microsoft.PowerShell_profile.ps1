@@ -68,3 +68,19 @@ function Diff {
     # 実体スクリプトを実行します(引数はそのまま渡します)。
     & $scriptPath @args
 }
+
+<#
+.SYNOPSIS
+    tools\CheckPsTools.ps1 を実行します。
+#>
+function CheckPsTools {
+    $scriptPath = $Global:ToolsDir + 'CheckPsTools.ps1'
+
+    # スクリプト未配置の状態で実行された場合は明示的に停止します。
+    if (-not (Test-Path $scriptPath)) {
+        throw "Script not found: $scriptPath"
+    }
+
+    # 実体スクリプトを実行します(引数はそのまま渡します)。
+    & $scriptPath @args
+}

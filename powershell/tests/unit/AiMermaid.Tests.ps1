@@ -1,4 +1,4 @@
-﻿<#
+<#
     Invoke-AiMermaid のユニットテスト（Pester v5）
     実行: Invoke-Pester .\tests\unit\AiMermaid.Tests.ps1 -Output Detailed
 #>

@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     Mermaidダイアグラムを含むMarkdownファイルをPDFに一括変換します

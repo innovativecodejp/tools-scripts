@@ -153,3 +153,52 @@
     `Compare-Object 1,2 2,3` は正常動作を確認。
   - `CheckPsTools.ps1` は Diff.ps1 を自動的に検出対象に含む(登録作業は不要)。
     なお `tools/CheckPsTools.ps1` 自体は未インストールのままで、今回は触れていない。
+
+### PowerShell 7 専用に統一し、CheckPsTools を登録・拡張
+
+- 対象: 全 `.ps1` / [.gitattributes](../../.gitattributes) / [tools/CheckPsTools.ps1](../tools/CheckPsTools.ps1) /
+  [tools/InstallPsScript.ps1](../tools/InstallPsScript.ps1) /
+  [Microsoft.PowerShell_profile.ps1](../Microsoft.PowerShell_profile.ps1) / README・docs 一式
+- きっかけ:
+  - Pester の導入影響を調べる過程で、**Windows PowerShell 5.1 では本リポジトリの `.ps1` が
+    ほぼ全滅する**ことが判明した。5.1 は BOM なしファイルをシステム既定エンコーディング
+    (日本語環境では CP932)として読むため、日本語を含むスクリプトがパースエラーになる。
+    KillLine(11) / MdToPdf(108) / Set-AiConfig(9) / InstallPsScript(5) / CheckPsTools(3) / Diff(9) が NG。
+    同じファイルを BOM 付きに変換すると 5.1 でも Parse OK になることを実測で確認し、原因を確定した。
+  - つまり README の「客先環境 5.1 以上 / スクリプトはどちらでも動作」と `#Requires -Version 5.1` は
+    実態と食い違っていた。BOM 付きへ統一する案もあったが、PS 7 の既定(BOM なし)から外れるため、
+    **PS 7 専用に割り切る**方針を採用した。
+- 変更内容:
+  - `#Requires -Version 5.1` → `-Version 7.0`(Diff / InstallPsScript / CheckPsTools)。
+    宣言の無かった KillLine / MdToPdf / Set-AiConfig にも `#Requires -Version 7.0` を追加。
+    AiMermaid.ps1 はドットソース専用のライブラリのため宣言しない(呼び出し元の MdToPdf.ps1 が宣言済み)。
+  - エンコーディングを **BOM なし + LF** に統一。BOM + 単独 CRLF が混在していた
+    AiMermaid.ps1 / AiMermaid.Tests.ps1 / Set-AiConfig.Tests.ps1 を正規化した。
+  - `.gitattributes` を新規追加し、`*.ps1` `*.md` 等の改行を `eol=lf` に固定
+    (`*.bat` `*.cmd` は CRLF でないと動かないため除外)。clone / チェックアウト時の揺れを防ぐ。
+  - `CheckPsTools.ps1` に **④ エンコーディングチェック**を追加。SourceRoot 配下の `.ps1` を再帰的に
+    走査し、BOM または CRLF を含むファイルを赤字で列挙する。戻り値にも
+    `EncodingIssueCount` / `EncodingIssues` を追加した。
+  - `CheckPsTools` をプロファイルへ登録(これまで未登録だった)。
+  - README(ルート / powershell) と docs(Diff / Set-AiConfig / MdToPdf) の動作環境記述を実態に合わせた。
+    MdToPdf.md の「客先環境(PS 5.1)への配布」節は削除せず、**配布時に BOM 付きへ変換する手順**として
+    位置づけを整理し、PS 7 では `Set-Content -Encoding UTF8` が BOM なしになる点を踏まえて
+    `UTF8Encoding($true)` を使う例に差し替えた。
+- 作業中の失敗と修正:
+  - 変更した `.ps1` を再配置する際、converter 配下にも `InstallPsScript.ps1` を実行してしまい、
+    **不要なラッパー関数 `MdToPdf` / `Set-AiConfig` / `AiMermaid` がプロファイルに追加された**。
+    特に `MdToPdf` は MdToPdf.ps1 内で定義される本体をラッパーが上書きしてしまい、
+    `& $scriptPath @args` では関数を定義するだけで何も起きない状態になっていた。
+    3 つとも削除し、converter 配下は `Copy-Item` による複写のみに切り替えた。
+    → 単に再配置したいだけの場合に `InstallPsScript.ps1` を使うと関数登録まで走る点に注意。
+  - 前回追加したエイリアス解除行の生成で、解除行が無いケースに空行が 2 行入る不具合があった
+    (`$blockLines = @('')` の後に `@('', '<#' ...)` を足していたため)。解除行側の末尾に `''` を
+    移動して修正し、エイリアスあり/なしの両方を疑似リポジトリで生成して行送りを確認した。
+- 確認:
+  - 全 11 本の `.ps1` が PS 7 で Parse OK。`CheckPsTools` のエンコーディングチェックも
+    「OK (11 件すべて BOM なし + LF)」。
+  - `Invoke-Pester tests\unit` … 36 件すべて成功。
+  - 新規セッションで `Diff` / `KillLine` / `InstallPsScript` / `CheckPsTools` / `MdToPdf` が
+    すべて Function として解決すること、`MdToPdf` がラッパーではなく本体(`-Pattern` を持つ)で
+    あること、`AiMermaid` / `Set-AiConfig` 関数が存在しないことを確認。
+  - `CheckPsTools` … スクリプト 7 件すべてインストール済み / プロファイル一致。

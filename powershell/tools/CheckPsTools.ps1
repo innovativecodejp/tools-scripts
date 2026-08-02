@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     converter / excel / file / tools 配下のスクリプトが $PROFILE ディレクトリ配下に
@@ -6,12 +6,17 @@
 
 .DESCRIPTION
     リポジトリ（ソース）と $PROFILE のディレクトリ（インストール先）を突き合わせ、
-    次の 3 点をチェックします。
+    次の 4 点をチェックします。
 
       ① 各カテゴリ（converter / excel / file / tools）配下のスクリプトが
          インストール先に配置されているか
       ② 未インストールのスクリプト名を一覧表示
       ③ $PROFILE 本体とリポジトリの Microsoft.PowerShell_profile.ps1 が一致するか
+      ④ リポジトリ内の .ps1 が「BOM なし + LF」に揃っているか
+
+    ④ は PowerShell 7 の既定（BOM なし UTF-8）に合わせるためのチェックです。
+    BOM や CRLF が混在すると差分が汚れ、エディタによっては書き戻しで形式が
+    揺れるため、リポジトリ全体を再帰的に検査します。
 
     本スクリプトは読み取り専用です。インストール先へのコピーは絶対に行いません。
 
@@ -130,11 +135,48 @@ else {
     }
 }
 
+# ④ リポジトリ内の .ps1 が「BOM なし + LF」に揃っているかを検査します。
+Write-Host ''
+Write-Host '=== エンコーディングチェック (BOM なし + LF) ===' -ForegroundColor Cyan
+
+$sourceFull = (Resolve-Path -LiteralPath $SourceRoot).Path
+$encodingIssues = New-Object System.Collections.Generic.List[object]
+$psFiles = @(Get-ChildItem -LiteralPath $sourceFull -Recurse -Filter '*.ps1' -File -ErrorAction SilentlyContinue)
+
+foreach ($file in $psFiles) {
+    $bytes  = [System.IO.File]::ReadAllBytes($file.FullName)
+    $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+    $crlf   = [regex]::Matches([System.IO.File]::ReadAllText($file.FullName), "`r`n").Count
+
+    if (-not $hasBom -and $crlf -eq 0) { continue }
+
+    $reasons = @()
+    if ($hasBom) { $reasons += 'BOM あり' }
+    if ($crlf -gt 0) { $reasons += ('CRLF {0} 箇所' -f $crlf) }
+
+    $encodingIssues.Add([PSCustomObject]@{
+        Path   = $file.FullName.Substring($sourceFull.Length).TrimStart('\', '/')
+        Reason = ($reasons -join ' / ')
+    })
+}
+
+if ($encodingIssues.Count -eq 0) {
+    Write-Host ("OK ({0} 件すべて BOM なし + LF)" -f $psFiles.Count) -ForegroundColor Green
+}
+else {
+    Write-Host ("要修正 {0}/{1} 件:" -f $encodingIssues.Count, $psFiles.Count) -ForegroundColor Red
+    foreach ($issue in $encodingIssues) {
+        Write-Host ("    - {0}  ({1})" -f $issue.Path, $issue.Reason) -ForegroundColor Red
+    }
+}
+
 # 呼び出し側で判定に使えるよう、結果オブジェクトを返します（コピーは行いません）。
 [PSCustomObject]@{
-    InstallRoot   = $installRoot
-    CheckedCount  = $totalChecked
-    MissingCount  = $missing.Count
-    Missing       = $missing.ToArray()
-    ProfileEqual  = $profileEqual
+    InstallRoot        = $installRoot
+    CheckedCount       = $totalChecked
+    MissingCount       = $missing.Count
+    Missing            = $missing.ToArray()
+    ProfileEqual       = $profileEqual
+    EncodingIssueCount = $encodingIssues.Count
+    EncodingIssues     = $encodingIssues.ToArray()
 }

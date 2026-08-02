@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     LINE.exe を終了します。ただし「使用中」とみなせる場合はスキップします。

@@ -1,0 +1,27 @@
+# このリポジトリのスクリプトは PowerShell 7 専用です。
+# PS 7 の既定に合わせ、テキストファイルは「UTF-8 BOM なし + LF」に統一します。
+# (PS 5.1 は BOM なしファイルを ANSI/CP932 として読むため日本語が壊れます)
+
+# 既定: 内容から自動判定し、リポジトリ内は LF で保持する。
+* text=auto eol=lf
+
+# 明示的にテキストとして扱い、改行を LF に固定する。
+*.ps1        text eol=lf
+*.psd1       text eol=lf
+*.psm1       text eol=lf
+*.md         text eol=lf
+*.json       text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.gitignore  text eol=lf
+
+# Windows のシェルスクリプトは CRLF でないと動かないため除外する。
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# バイナリ（差分・改行変換の対象外）。
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.zip binary

@@ -6,10 +6,33 @@ Windows 環境向けの PowerShell 自動化ツールです。
 
 | 環境 | PowerShell | 備考 |
 |---|---|---|
-| 開発環境 | **7.6 以上**（推奨） | UTF-8 がデフォルト、BOM 不要 |
-| 客先環境 | 5.1 以上 | Windows 標準搭載、スクリプトはどちらでも動作 |
+| 必須 | **7.0 以上** | 各スクリプトが `#Requires -Version 7.0` を宣言 |
+| 推奨 | 7.6 以上 | 開発・動作確認環境。UTF-8 がデフォルト、BOM 不要 |
 
 > PS 7 は `winget install Microsoft.PowerShell` で導入できます。
+
+### Windows PowerShell 5.1 では動作しません
+
+本リポジトリのスクリプトは **UTF-8 BOM なし + LF** で管理しています。  
+PowerShell 5.1 は BOM なしファイルをシステム既定エンコーディング（日本語環境では CP932 / Shift-JIS）として読むため、日本語を含むスクリプトはパースエラーになります。
+
+```
+# Windows PowerShell 5.1 でのパース結果
+Unexpected token '}' in expression or statement.
+```
+
+BOM を付ければ 5.1 でも動作しますが、PS 7 の既定（BOM なし）から外れて形式が揺れるため、リポジトリは PS 7 専用に統一する方針です。  
+5.1 環境へ配布する必要がある場合は、**配布時に BOM 付きへ変換**してください（手順は [MdToPdf.md](converter/MdToPdf.md#客先環境ps-51への配布時の注意) を参照）。
+
+形式が揃っているかは `CheckPsTools` のエンコーディングチェックで確認できます。
+
+```powershell
+CheckPsTools
+# === エンコーディングチェック (BOM なし + LF) ===
+# OK (11 件すべて BOM なし + LF)
+```
+
+`.gitattributes` で `*.ps1` などの改行を LF に固定しているため、clone / チェックアウト時にも形式は保たれます。
 
 ## ツール一覧
 
@@ -27,7 +50,7 @@ Windows 環境向けの PowerShell 自動化ツールです。
 | [Diff.ps1](tools/Diff.ps1) | 指定したファイル／フォルダの差分を TortoiseGit の GUI で開く。2ファイル比較・リビジョン指定にも対応 | [仕様書](docs/Diff.md) |
 | [KillLine.ps1](tools/KillLine.ps1) | LINE.exe を終了（使用中はスキップ）。`-s` でタスクスケジューラによる定期実行を登録、`-e` で解除 | – |
 | [InstallPsScript.ps1](tools/InstallPsScript.ps1) | スクリプトを `$PROFILE` 配下へ複写し、拡張子なしで起動できるラッパー関数をプロファイルへ追加 | – |
-| [CheckPsTools.ps1](tools/CheckPsTools.ps1) | 各スクリプトが `$PROFILE` 配下へインストール済みかをチェック（読み取り専用） | – |
+| [CheckPsTools.ps1](tools/CheckPsTools.ps1) | 各スクリプトが `$PROFILE` 配下へインストール済みか、`.ps1` が BOM なし + LF に揃っているかをチェック（読み取り専用） | – |
 
 ## プロファイル
 
@@ -144,4 +167,5 @@ Node.js（`marked` / `puppeteer` / `mermaid.js` / `highlight.js`）を内部で�
 
 PowerShell automation scripts for Windows.  
 Currently includes **MdToPdf.ps1**, which batch-converts Markdown files (including Mermaid diagrams) to PDF using Node.js and Puppeteer.  
-Requires PowerShell 7.6+ (recommended) or 5.1+, and Node.js; npm dependencies are installed automatically on first run.
+Requires PowerShell 7.0+ (7.6+ recommended) and Node.js; npm dependencies are installed automatically on first run.  
+Windows PowerShell 5.1 is **not** supported: scripts are stored as UTF-8 without BOM, which 5.1 reads as the system ANSI code page and fails to parse.

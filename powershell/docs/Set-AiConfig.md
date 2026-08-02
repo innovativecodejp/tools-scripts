@@ -9,7 +9,7 @@ Claude API の設定（APIキー・モデル）をユーザー環境変数に永
 
 | 要件 | 詳細 |
 |------|------|
-| PowerShell | 5.1 以上 |
+| PowerShell | 7.0 以上（5.1 非対応。理由は [powershell/README.md](../README.md#windows-powershell-51-では動作しません) を参照） |
 | インターネット接続 | APIキー疎通確認時に必要 |
 
 ---

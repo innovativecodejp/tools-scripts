@@ -9,7 +9,7 @@
 
 | 要件 | 詳細 |
 |------|------|
-| PowerShell | 5.1 以上 |
+| PowerShell | 7.0 以上（5.1 非対応。理由は [powershell/README.md](../README.md#windows-powershell-51-では動作しません) を参照） |
 | TortoiseGit | インストール済みであること（`TortoiseGitProc.exe` を使用） |
 | Git | 不要（`.git` の有無はファイルシステムを辿って判定するため） |
 
@@ -239,7 +239,8 @@ Pester v5 以上が必要です。
 呼び出し演算子 `&` を使うと、PowerShell が空白を含む引数を `"/path:D:\a b\file.txt"` のように
 **トークン全体で**引用してしまい、TortoiseGit 側のパーサ挙動に依存します。  
 公式ドキュメント（`TortoiseGit_en\tgit-automation.html` / Appendix D. Automating TortoiseGit）の例と同じく
-「コロンの後ろだけ」を引用した文字列を逐語的に渡すことで、PowerShell 5.1 / 7 の両方で同じ結果になります。
+「コロンの後ろだけ」を引用した文字列を逐語的に渡すことで、PowerShell のバージョンや
+`$PSNativeCommandArgumentPassing` の設定に依存せず同じコマンドラインが渡ります。
 
 パスに含まれると区切り文字と衝突する `*`（TortoiseGit の複数パス区切り）は、
 Windows のファイル名に使用できないため考慮不要です。

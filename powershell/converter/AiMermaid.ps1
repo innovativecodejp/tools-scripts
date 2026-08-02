@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Invoke-AiMermaid — ai-mermaid ブロックを Claude API で Mermaid 構文に変換します
 #>

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     指定したファイル / フォルダの差分を TortoiseGit の GUI で開きます。

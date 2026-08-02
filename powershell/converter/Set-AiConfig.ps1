@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     Claude API の設定（APIキー・モデル）をユーザー環境変数に保存します

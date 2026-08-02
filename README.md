@@ -41,7 +41,7 @@ tools-scripts/
 
 | カテゴリ | 要件 |
 |---|---|
-| PowerShell | Windows 10/11、PowerShell 5.1 以上 |
+| PowerShell | Windows 10/11、PowerShell **7.0 以上**（Windows PowerShell 5.1 は非対応） |
 | Python | Python 3.9 以上（クロスプラットフォーム） |
 | Shell | macOS / Linux、Bash 4.x 以上または Zsh |
 

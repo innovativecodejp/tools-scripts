@@ -8,7 +8,7 @@ Mermaid ダイアグラムを含む Markdown ファイルを PDF に一括変換
 
 | 要件 | 詳細 |
 |------|------|
-| PowerShell | 7.6 以上（推奨）/ 5.1 以上（客先環境） |
+| PowerShell | **7.0 以上**（7.6 以上を推奨）。5.1 へ配布する場合は[変換が必要](#客先環境ps-51への配布時の注意) |
 | Node.js | 任意の安定版（`node` コマンドが PATH に存在すること） |
 | npm パッケージ | 初回実行時に自動インストール（下記参照） |
 
@@ -125,20 +125,27 @@ Chromium（約 170 MB）のダウンロードが発生します。
 
 ## 客先環境（PS 5.1）への配布時の注意
 
-客先環境が Windows PowerShell 5.1 の場合、以下の点に注意してください。
+リポジトリのスクリプトは **PS 7 専用**（`#Requires -Version 7.0`）で、UTF-8 BOM なし + LF で管理しています。  
+客先環境が Windows PowerShell 5.1 の場合は、**配布時に BOM 付きへ変換する**ことで動作させられます。
 
 ### スクリプトファイルのエンコーディング
 
-PS 5.1 は BOM なし UTF-8 ファイルをシステム既定エンコーディング（日本語環境では Shift-JIS）として読み込みます。  
-スクリプトを渡す際は **UTF-8 BOM あり** で保存してください。
+PS 5.1 は BOM なし UTF-8 ファイルをシステム既定エンコーディング（日本語環境では CP932 / Shift-JIS）として読み込むため、日本語を含むスクリプトは `Unexpected token '}' in expression or statement.` のようなパースエラーになります。  
+スクリプトを渡す際は **UTF-8 BOM あり** に変換してください。
 
 ```powershell
-# PS 5.1 環境で保存する場合（UTF8 = BOM あり）
-Set-Content -Path .\MdToPdf.ps1 -Value (Get-Content .\MdToPdf.ps1 -Raw -Encoding UTF8) -Encoding UTF8
+# PS 7 上で BOM 付きに変換して配布用フォルダへ出力する
+$src = '.\MdToPdf.ps1'
+$dst = '.\dist\MdToPdf.ps1'
+$bom = New-Object System.Text.UTF8Encoding($true)
+[System.IO.File]::WriteAllText($dst, [System.IO.File]::ReadAllText($src), $bom)
 ```
 
-> PS 7 で `Set-Content -Encoding UTF8` を使うと BOM なしで保存されます。  
-> 客先向けファイルは PS 5.1 環境で保存するか、上記コマンドで変換してください。
+> PS 7 で `Set-Content -Encoding UTF8` を使うと BOM **なし**で保存されます。  
+> BOM 付きにするには上記のように `UTF8Encoding($true)` を使うか、PS 5.1 側で `-Encoding UTF8` を指定して保存してください。
+
+なお、変換しただけでは `#Requires -Version 7.0` により 5.1 では実行を拒否されます。  
+5.1 で動かす必要がある場合は、この宣言も併せて外してください（動作は未検証です）。
 
 ### `-FileList` で渡すテキストファイル
 

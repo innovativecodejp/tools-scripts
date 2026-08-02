@@ -1,4 +1,4 @@
-﻿<#
+<#
     Set-AiConfig.ps1 のユニットテスト（Pester v5）
     実行: Invoke-Pester .\tests\unit\Set-AiConfig.Tests.ps1 -Output Detailed
 

@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     指定したスクリプトを $PROFILE 配下へ複写し、拡張子なしで起動できるよう
@@ -136,11 +136,11 @@ else {
             ("if (Test-Path Alias:{0}) {{" -f $name)
             ("    Remove-Item -LiteralPath Alias:{0} -Force" -f $name)
             '}'
+            ''
         )
     }
 
     $blockLines += @(
-        ''
         '<#'
         '.SYNOPSIS'
         ("    {0}\{1}.ps1 を実行します。" -f $category, $name)
