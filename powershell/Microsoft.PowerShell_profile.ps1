@@ -10,6 +10,7 @@ $Global:ExcelDir = $Global:ProfileDir + '\excel\'
 <#
 .SYNOPSIS
     tools\KillLine.ps1 を実行して LINE.exe を終了します。
+    -s で定期実行の登録、-e で解除、-Status で状況表示を行います。
 #>
 function KillLine {
     # tools 配下の実体スクリプトを組み立てます。
@@ -20,8 +21,8 @@ function KillLine {
         throw "Script not found: $scriptPath"
     }
 
-    # 実体スクリプトを実行します。
-    & $scriptPath
+    # 実体スクリプトを実行します(引数はそのまま渡します)。
+    & $scriptPath @args
 }
 
 # converter\MdToPdf.ps1 をドットソースで読み込み、MdToPdf 関数を登録します。

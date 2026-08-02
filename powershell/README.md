@@ -20,6 +20,14 @@ Windows 環境向けの PowerShell 自動化ツールです。
 | [MdToPdf.ps1](converter/MdToPdf.ps1) | Mermaid ダイアグラムを含む Markdown を PDF に一括変換。`-AiMermaid` で自然言語→Mermaid自動生成に対応 | [仕様書](converter/MdToPdf.md) / [AI機能仕様](docs/AiMermaid.md) |
 | [Set-AiConfig.ps1](converter/Set-AiConfig.ps1) | Claude API のキーとモデルをユーザー環境変数に保存（`-AiMermaid` 使用前に一度だけ実行） | [仕様書](docs/Set-AiConfig.md) |
 
+### tools — ユーティリティ
+
+| スクリプト | 概要 |
+|---|---|
+| [KillLine.ps1](tools/KillLine.ps1) | LINE.exe を終了（使用中はスキップ）。`-s` でタスクスケジューラによる定期実行を登録、`-e` で解除 |
+| [InstallPsScript.ps1](tools/InstallPsScript.ps1) | スクリプトを `$PROFILE` 配下へ複写し、拡張子なしで起動できるラッパー関数をプロファイルへ追加 |
+| [CheckPsTools.ps1](tools/CheckPsTools.ps1) | 各スクリプトが `$PROFILE` 配下へインストール済みかをチェック（読み取り専用） |
+
 ## プロファイル
 
 | ファイル | 概要 | 用途 |
@@ -36,11 +44,23 @@ $PROFILE
 
 運用時は、`Microsoft.PowerShell_profile.ps1` と同じディレクトリ配下に `converter/` `tools/` `mail/` `file/` などのフォルダをこのリポジトリと同様の構成で配置して使用します。
 
-現在のプロファイルには `KillLine` 関数を定義してあり、`tools\KillLine.ps1` を呼び出せます。
+現在のプロファイルには `KillLine` 関数を定義してあり、`tools\KillLine.ps1` を呼び出せます。引数はそのままスクリプトへ渡されます。
 
 ```powershell
+# LINE.exe を直ちに終了（使用中とみなせる場合はスキップ）
 KillLine
+
+# 30 分間隔の定期実行をタスクスケジューラに登録（登録直後に 1 回実行）
+KillLine -s
+
+# 定期実行を停止（タスクを削除）
+KillLine -e
+
+# 登録状況・次回実行時刻を表示
+KillLine -Status
 ```
+
+`-s` が登録するタスクは「ログオン中のみ・現在のユーザー権限（昇格不要）」で非表示実行されます。タスクが参照するのは `$PROFILE` 配下の配置先（`<$PROFILE のフォルダ>\tools\KillLine.ps1`）のため、dev リポジトリから `-s` を実行する場合も、事前に `InstallPsScript.ps1 tools\KillLine.ps1` で配置しておいてください。
 
 ## 共通の使い方
 

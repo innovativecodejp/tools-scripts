@@ -66,3 +66,38 @@
   - 同名関数が既に定義済みの場合は二重追加しない。
   - 比較は改行コード・末尾空白を正規化して判定。
 - 確認: 正常系 / 既定義スキップ / バージョン差異(赤字)の 3 パターンを実機検証(検証で生じたプロファイル変更は元に戻し済み)。
+
+## 2026-08-03
+
+### KillLine の起動経路を KillLine.ps1 に一本化(`-s` / `-e` を追加)
+
+- 対象: [tools/KillLine.ps1](../tools/KillLine.ps1) / [Microsoft.PowerShell_profile.ps1](../Microsoft.PowerShell_profile.ps1)
+- 仕様:
+  - `KillLine` … 従来どおり LINE.exe を直ちに終了(使用中とみなせる場合はスキップ)。
+  - `KillLine -s` … 30 分間隔の定期実行タスクを登録。登録直後に 1 回実行される。
+  - `KillLine -e` … 定期実行タスクを削除して停止。
+  - `KillLine -Status` … 登録状況・次回実行時刻を表示(追加)。
+- 変更内容:
+  - パラメータセット(`Run` / `Schedule` / `End` / `Status`)で排他化。`-s` `-e` を
+    単独のパラメータ名にせず、正式名 `-Schedule` `-End` の `[Alias]` として定義した
+    (単一文字名は将来同じ頭文字のパラメータが増えた時点で曖昧エラーになるため)。
+  - 削除: `tools/Register-KillLineTask.ps1`(XML 生成ロジックは KillLine.ps1 へ移設)
+  - 削除: `tools/KillLineLoop.ps1`(タスクスケジューラ方式に一本化したため不要)
+  - `Microsoft.PowerShell_profile.ps1` の `KillLine` 関数が `& $scriptPath` で引数を
+    捨てていたため `@args` を追加。これが無いと `KillLine -s` が引数なしの即時 kill に
+    なってしまう(他の関数は InstallPsScript.ps1 が生成する `@args` 付きの形)。
+  - schtasks.exe の呼び出しを `Invoke-Schtasks` に集約。native コマンドの stderr は
+    `$ErrorActionPreference = 'Stop'` の下で NativeCommandError となり得るため、
+    実行中だけ `Continue` に戻して終了コードで判定する。
+- 据え置いた点:
+  - 実行間隔は 30 分のまま(`-IntervalMinutes` で変更可)。タスク名も `KillLine` 据え置きの
+    ため、既存タスクは `/F` で上書きされ二重登録にはならない。
+  - タスクが参照するのは `$PROFILE` 配下の配置先。dev リポジトリから `-s` しても配置先を
+    指す(リポジトリ移動でタスクが壊れないようにするため)。
+- 確認:
+  - Parser による構文チェック / パラメータセットの解決を確認。
+  - `-Status`(読み取り専用)、`-s` の配置先不在エラー、`-e` の未登録時警告、
+    `-s -e` 同時指定の拒否を実機で確認。いずれもタスクへの変更なし。
+  - 既定(引数なし)の実行は LINE 起動中のため未実施。
+  - 補足: 現在 `KillLine` タスクは Status = Disabled / Next Run Time = N/A。
+    有効化するには `KillLine -s` で再登録する。
