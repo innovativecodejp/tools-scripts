@@ -2,17 +2,20 @@
 <#
 .SYNOPSIS
     converter / excel / file / tools 配下のスクリプトが $PROFILE ディレクトリ配下に
-    インストールされているかを検査します（コピーは一切行いません）。
+    インストールされ、内容も最新かを検査します（コピーは一切行いません）。
 
 .DESCRIPTION
     リポジトリ（ソース）と $PROFILE のディレクトリ（インストール先）を突き合わせ、
     次の 4 点をチェックします。
 
       ① 各カテゴリ（converter / excel / file / tools）配下のスクリプトが
-         インストール先に配置されているか
-      ② 未インストールのスクリプト名を一覧表示
+         インストール先に配置されているか（存在）、および SHA256 が一致するか（内容）
+      ② 未インストール／内容不一致のスクリプト名を一覧表示
       ③ $PROFILE 本体とリポジトリの Microsoft.PowerShell_profile.ps1 が一致するか
       ④ リポジトリ内の .ps1 が「BOM なし + LF」に揃っているか
+
+    ① の内容比較は、スクリプトを修正したあと配置し忘れる事故を検出するためのものです。
+    「配置済みだが古い」状態は存在チェックだけでは分からないため、SHA256 で照合します。
 
     ④ は PowerShell 7 の既定（BOM なし UTF-8）に合わせるためのチェックです。
     BOM や CRLF が混在すると差分が汚れ、エディタによっては書き戻しで形式が
@@ -54,8 +57,9 @@ Write-Host ("ソース      : {0}" -f $SourceRoot)
 Write-Host ("インストール先: {0}" -f $installRoot)
 Write-Host ''
 
-# ① ② 各カテゴリのスクリプトがインストール先に存在するか検査します。
+# ① ② 各カテゴリのスクリプトが配置済みか（存在）、内容が最新か（SHA256）を検査します。
 $missing = New-Object System.Collections.Generic.List[string]
+$stale   = New-Object System.Collections.Generic.List[string]
 $totalChecked = 0
 
 foreach ($cat in $Categories) {
@@ -76,32 +80,60 @@ foreach ($cat in $Categories) {
     }
 
     $catMissing = New-Object System.Collections.Generic.List[string]
+    $catStale   = New-Object System.Collections.Generic.List[string]
     foreach ($script in $scripts) {
         $totalChecked++
         $dstPath = Join-Path $dstDir $script.Name
+
         if (-not (Test-Path -LiteralPath $dstPath)) {
             $catMissing.Add($script.Name)
             $missing.Add(('{0}\{1}' -f $cat, $script.Name))
+            continue
+        }
+
+        # 配置済みでも内容が古い場合があるため、SHA256 で照合する。
+        $srcHash = (Get-FileHash -LiteralPath $script.FullName -Algorithm SHA256).Hash
+        $dstHash = (Get-FileHash -LiteralPath $dstPath -Algorithm SHA256).Hash
+        if ($srcHash -ne $dstHash) {
+            $catStale.Add($script.Name)
+            $stale.Add(('{0}\{1}' -f $cat, $script.Name))
         }
     }
 
-    if ($catMissing.Count -eq 0) {
-        Write-Host ("[{0}] OK ({1} 件すべてインストール済み)" -f $cat, $scripts.Count) -ForegroundColor Green
+    if ($catMissing.Count -eq 0 -and $catStale.Count -eq 0) {
+        Write-Host ("[{0}] OK ({1} 件すべてインストール済み・最新)" -f $cat, $scripts.Count) -ForegroundColor Green
     }
     else {
-        Write-Host ("[{0}] 未インストール {1}/{2} 件:" -f $cat, $catMissing.Count, $scripts.Count) -ForegroundColor Red
-        foreach ($name in $catMissing) {
-            Write-Host ("    - {0}" -f $name) -ForegroundColor Red
+        if ($catMissing.Count -gt 0) {
+            Write-Host ("[{0}] 未インストール {1}/{2} 件:" -f $cat, $catMissing.Count, $scripts.Count) -ForegroundColor Red
+            foreach ($name in $catMissing) {
+                Write-Host ("    - {0}" -f $name) -ForegroundColor Red
+            }
+        }
+        if ($catStale.Count -gt 0) {
+            Write-Host ("[{0}] 内容不一致 {1}/{2} 件:" -f $cat, $catStale.Count, $scripts.Count) -ForegroundColor Yellow
+            foreach ($name in $catStale) {
+                Write-Host ("    - {0}  (配置先が古い可能性があります)" -f $name) -ForegroundColor Yellow
+            }
         }
     }
 }
 
 Write-Host ''
-if ($missing.Count -eq 0) {
-    Write-Host ("スクリプト: 全 {0} 件インストール済み" -f $totalChecked) -ForegroundColor Green
+if ($missing.Count -eq 0 -and $stale.Count -eq 0) {
+    Write-Host ("スクリプト: 全 {0} 件インストール済み・最新" -f $totalChecked) -ForegroundColor Green
 }
 else {
-    Write-Host ("未インストールのスクリプト: {0} 件" -f $missing.Count) -ForegroundColor Red
+    if ($missing.Count -gt 0) {
+        Write-Host ("未インストールのスクリプト: {0} 件" -f $missing.Count) -ForegroundColor Red
+    }
+    if ($stale.Count -gt 0) {
+        Write-Host ("内容が一致しないスクリプト: {0} 件" -f $stale.Count) -ForegroundColor Yellow
+        Write-Host '  再配置するには次を実行してください:' -ForegroundColor Gray
+        foreach ($rel in $stale) {
+            Write-Host ("      InstallPsScript {0} -c" -f $rel) -ForegroundColor Gray
+        }
+    }
 }
 
 # ③ $PROFILE 本体とリポジトリのプロファイル管理ファイルを比較します。
@@ -176,6 +208,8 @@ else {
     CheckedCount       = $totalChecked
     MissingCount       = $missing.Count
     Missing            = $missing.ToArray()
+    StaleCount         = $stale.Count
+    Stale              = $stale.ToArray()
     ProfileEqual       = $profileEqual
     EncodingIssueCount = $encodingIssues.Count
     EncodingIssues     = $encodingIssues.ToArray()

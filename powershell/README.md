@@ -50,7 +50,7 @@ CheckPsTools
 | [Diff.ps1](tools/Diff.ps1) | 指定したファイル／フォルダの差分を TortoiseGit の GUI で開く。2ファイル比較・リビジョン指定にも対応 | [仕様書](docs/Diff.md) |
 | [KillLine.ps1](tools/KillLine.ps1) | LINE.exe を終了（使用中はスキップ）。`-s` でタスクスケジューラによる定期実行を登録、`-e` で解除 | – |
 | [InstallPsScript.ps1](tools/InstallPsScript.ps1) | スクリプトを `$PROFILE` 配下へ複写し、拡張子なしで起動できるラッパー関数をプロファイルへ追加。`-c` で複写のみ | – |
-| [CheckPsTools.ps1](tools/CheckPsTools.ps1) | 各スクリプトが `$PROFILE` 配下へインストール済みか、`.ps1` が BOM なし + LF に揃っているかをチェック（読み取り専用） | – |
+| [CheckPsTools.ps1](tools/CheckPsTools.ps1) | 各スクリプトが `$PROFILE` 配下へインストール済みか・内容が最新か（SHA256）、`.ps1` が BOM なし + LF に揃っているかをチェック（読み取り専用） | – |
 
 ## プロファイル
 
@@ -99,6 +99,44 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 ## ツール詳細
+
+### CheckPsTools.ps1
+
+読み取り専用のチェックツールです。配置先へは一切書き込みません。
+
+```powershell
+CheckPsTools
+```
+
+```
+[converter] OK (3 件すべてインストール済み・最新)
+[tools] 内容不一致 1/4 件:
+    - Diff.ps1  (配置先が古い可能性があります)
+
+内容が一致しないスクリプト: 1 件
+  再配置するには次を実行してください:
+      InstallPsScript tools\Diff.ps1 -c
+
+=== プロファイル比較 ===
+プロファイル: 一致
+
+=== エンコーディングチェック (BOM なし + LF) ===
+OK (11 件すべて BOM なし + LF)
+```
+
+チェック内容は次の 4 点です。
+
+| | 内容 |
+|---|---|
+| ① | カテゴリ配下のスクリプトが配置済みか（存在）、**SHA256 が一致するか（内容）** |
+| ② | 未インストール／内容不一致のスクリプト名を一覧表示 |
+| ③ | `$PROFILE` とリポジトリの `Microsoft.PowerShell_profile.ps1` が一致するか |
+| ④ | リポジトリ内の `.ps1` が BOM なし + LF に揃っているか |
+
+> **内容比較（SHA256）について**  
+> 存在チェックだけでは「配置済みだが古い」状態を検出できません。スクリプトを修正したあと配置し忘れると、`$PROFILE` 経由で呼ばれるのは古い版のままになります。これを検出するため SHA256 で照合し、不一致なら再配置コマンドを提示します。
+
+戻り値は `[PSCustomObject]` で、`MissingCount` / `Missing` / `StaleCount` / `Stale` / `ProfileEqual` / `EncodingIssueCount` / `EncodingIssues` を含みます。
 
 ### InstallPsScript.ps1
 
