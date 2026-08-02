@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     指定したファイル / フォルダの差分を TortoiseGit の GUI で開きます。
@@ -78,6 +77,8 @@
 .EXAMPLE
     .\Diff.ps1 .\src
 #>
+# コメントベースヘルプより前に置くと Get-Help が拾えなくなるため、ここへ置く。
+#Requires -Version 7.0
 
 [CmdletBinding(SupportsShouldProcess = $true, DefaultParameterSetName = 'Rev')]
 param(

@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     Mermaidダイアグラムを含むMarkdownファイルをPDFに一括変換します
@@ -59,6 +58,8 @@
         . "$PSScriptRoot\MdToPdf.ps1"   # またはプロファイルに記述
         MdToPdf -Pattern "*.md"
 #>
+# コメントベースヘルプより前に置くと Get-Help が拾えなくなるため、ここへ置く。
+#Requires -Version 7.0
 function MdToPdf {
     [CmdletBinding(DefaultParameterSetName = 'Pattern')]
 param(

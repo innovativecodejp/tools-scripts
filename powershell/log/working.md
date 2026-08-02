@@ -253,3 +253,57 @@
   - 疑似リポジトリで「一致 / 内容不一致 / 未インストール」が混在するケースを検証し、
     3 状態が正しく分類されること、`Missing` と `Stale` が別々に返ることを確認。
     テスト用に配置先へ複写したファイルは削除済み。
+
+### `#Requires` の位置で失われていた Get-Help を復旧し、ラッパーに -Help を追加
+
+- 対象: [tools/Diff.ps1](../tools/Diff.ps1) / [tools/KillLine.ps1](../tools/KillLine.ps1) /
+  [tools/CheckPsTools.ps1](../tools/CheckPsTools.ps1) / [tools/InstallPsScript.ps1](../tools/InstallPsScript.ps1) /
+  [converter/MdToPdf.ps1](../converter/MdToPdf.ps1) / [converter/Set-AiConfig.ps1](../converter/Set-AiConfig.ps1) /
+  [Microsoft.PowerShell_profile.ps1](../Microsoft.PowerShell_profile.ps1)
+- きっかけ:
+  - 「全 `.ps1` に usage 出力があるか」を調査したところ、明示的な usage 関数を持つスクリプトは
+    0 件で、全スクリプトがコメントベースヘルプ(`.SYNOPSIS`)頼りだった。ところが
+    `Get-Help .\Diff.ps1` を実行しても DESCRIPTION も 5 つの EXAMPLE も表示されず、
+    自動生成された構文行しか出ない状態だった。
+  - 最小再現で切り分けた結果、**1 行目の `#Requires -Version 7.0` がヘルプブロックより前に
+    あるとコメントベースヘルプが認識されない**ことが原因と判明した
+    (`#Requires` が先 → 消失 / `#Requires` が後・宣言なし → 正常)。
+    前項「PowerShell 7 専用に統一」で全ファイルの 1 行目へ `#Requires` を追加したことにより、
+    リポジトリ全体のヘルプが同時に失われていた。
+- 変更内容:
+  - `#Requires -Version 7.0` をコメントベースヘルプの**直後**へ移動(6 本)。再発防止のため
+    移動理由をその場のコメントとして残した。`AiMermaid.ps1` は元から宣言を持たないため影響なし。
+  - プロファイルに共通ヘルパー `Invoke-ToolScript` を追加。未配置チェックと
+    「`-Help` 系ならスクリプト本体のヘルプへ振り替え」を担う。ラッパー関数は
+    `& $scriptPath @args` で本体を呼ぶだけのため `Get-Help <関数名>` ではラッパー自身の
+    SYNOPSIS 1 行しか出ず、日常の呼び出し口である関数側から実体のヘルプへ辿れなかった。
+    各ラッパーは 13 行 → 1 行になった。
+  - `InstallPsScript.ps1` の ③ が生成するテンプレートも同じ形へ更新。今後追加する関数も
+    自動的に `-Help` に対応する。
+- 実測メモ:
+  - `-?` は転送対象にできない。**コメントベースヘルプを持つ関数では PowerShell 自身が `-?` を
+    横取りして関数側のヘルプを表示する**ため `$args` に届かない
+    (ヘルプなし単純関数 → `args=[-?]` / ヘルプ付き単純関数・`CmdletBinding` → 横取り)。
+    受け付けるのは `-Help` / `--help` / `-h` / `/?` の 4 種とし、代わりに各ラッパーの SYNOPSIS へ
+    「-Help でヘルプを表示します」と書いて `-?` からでも辿れるようにした。
+  - `MdToPdf.ps1` はヘルプブロックが `function MdToPdf` の直前にあり、スクリプトではなく
+    関数側のヘルプとして解決される。`#Requires` をその間に挟んでも関数ヘルプが維持されることを
+    実測で確認した。
+- 据え置いた点:
+  - 明示的な usage 出力関数は追加していない。コメントベースヘルプが復活すれば
+    `Get-Help` と `-Help` で同じ情報が得られるため。
+  - `ForwardHelpTargetName` は使わなかった。ロード済みコマンド名を前提とするプロキシ関数向けの
+    仕組みで、パス指定のスクリプトには噛み合わないため。
+- 確認:
+  - `Get-Help` の EXAMPLE 件数 … Diff 5 / KillLine 5 / InstallPsScript 2 / CheckPsTools 1 /
+    Set-AiConfig 1 / MdToPdf 1。変更前はいずれも 0 件だった。
+  - 新規 `pwsh` セッション(実 `$PROFILE` をロード)で `Diff -Help` / `KillLine -h` /
+    `CheckPsTools /?` / `InstallPsScript -Help` `--help` が本体のヘルプを表示すること、
+    `Diff README.md -WhatIf`(ProcessId = null)と `CheckPsTools -Categories tools` の
+    引数素通しが従来どおりであることを確認。
+  - `Invoke-Pester tests\unit` … 36 件すべて成功。
+  - `CheckPsTools` … スクリプト 7 件すべてインストール済み・最新 / プロファイル一致 /
+    エンコーディング OK(11 件すべて BOM なし + LF)。
+  - 配置先への反映前に `$PROFILE` が HEAD とバイト単位で一致する(独自変更なし)ことを
+    確認したうえで上書きし、`Microsoft.PowerShell_profile.ps1.bak-20260803` として
+    バックアップを取得した。

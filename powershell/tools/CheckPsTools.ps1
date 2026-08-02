@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     converter / excel / file / tools 配下のスクリプトが $PROFILE ディレクトリ配下に
@@ -32,6 +31,9 @@
 .EXAMPLE
     .\tools\CheckPsTools.ps1
 #>
+# コメントベースヘルプより前に置くと Get-Help が拾えなくなるため、ここへ置く。
+#Requires -Version 7.0
+
 [CmdletBinding()]
 param(
     [string[]]$Categories = @('converter', 'excel', 'file', 'tools'),

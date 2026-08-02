@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     LINE.exe を終了します。ただし「使用中」とみなせる場合はスキップします。
@@ -77,6 +76,8 @@
 .EXAMPLE
     .\KillLine.ps1 -e
 #>
+# コメントベースヘルプより前に置くと Get-Help が拾えなくなるため、ここへ置く。
+#Requires -Version 7.0
 
 [CmdletBinding(DefaultParameterSetName = 'Run')]
 param(

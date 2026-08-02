@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     指定したスクリプトを $PROFILE 配下へ複写し、拡張子なしで起動できるよう
@@ -9,7 +8,9 @@
 
       ② <script-file.ps1> を $PROFILE のあるディレクトリ配下(同じ相対パス)へ複写する。
       ③ リポジトリの Microsoft.PowerShell_profile.ps1 に、拡張子なしで起動できる
-         ラッパー関数の定義を追加する。関数名と同名のエイリアスが存在する場合
+         ラッパー関数の定義を追加する。本体は共通ヘルパー Invoke-ToolScript の
+         呼び出し 1 行で、未配置チェックと -Help によるヘルプ転送を担う。
+         関数名と同名のエイリアスが存在する場合
          (例: Diff → 組み込みの diff = Compare-Object) は、エイリアスの方が
          優先されて関数が呼ばれないため、解除する行も併せて追加する。
       ④ Microsoft.PowerShell_profile.ps1 と $PROFILE を比較し、差分が③の追加のみ
@@ -44,6 +45,9 @@
 .EXAMPLE
     .\tools\InstallPsScript.ps1 tools\KillLine.ps1 -c
 #>
+# コメントベースヘルプより前に置くと Get-Help が拾えなくなるため、ここへ置く。
+#Requires -Version 7.0
+
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true, Position = 0)]
@@ -210,21 +214,14 @@ else {
         )
     }
 
+    # 未配置チェックとヘルプ転送はプロファイルの Invoke-ToolScript に集約済み。
     $blockLines += @(
         '<#'
         '.SYNOPSIS'
-        ("    {0}\{1}.ps1 を実行します。" -f $category, $name)
+        ("    {0}\{1}.ps1 を実行します。-Help でヘルプを表示します。" -f $category, $name)
         '#>'
         ("function {0} {{" -f $name)
-        ("    `$scriptPath = {0}" -f $dirExpr)
-        ''
-        '    # スクリプト未配置の状態で実行された場合は明示的に停止します。'
-        '    if (-not (Test-Path $scriptPath)) {'
-        '        throw "Script not found: $scriptPath"'
-        '    }'
-        ''
-        '    # 実体スクリプトを実行します(引数はそのまま渡します)。'
-        '    & $scriptPath @args'
+        ("    Invoke-ToolScript -ScriptPath ({0}) -Arguments `$args" -f $dirExpr)
         '}'
     )
     $block = ($blockLines -join $nl)

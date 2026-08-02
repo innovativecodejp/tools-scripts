@@ -1,4 +1,3 @@
-#Requires -Version 7.0
 <#
 .SYNOPSIS
     Claude API の設定（APIキー・モデル）をユーザー環境変数に保存します
@@ -11,6 +10,8 @@
 .EXAMPLE
     .\Set-AiConfig.ps1
 #>
+# コメントベースヘルプより前に置くと Get-Help が拾えなくなるため、ここへ置く。
+#Requires -Version 7.0
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
